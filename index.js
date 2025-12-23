@@ -1,4 +1,4 @@
-const { Client, Collection, GatewayIntentBits, ActivityType, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, Collection, GatewayIntentBits, ActivityType, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -206,6 +206,25 @@ client.on('interactionCreate', async (interaction) => {
                 client.db = await dbInstance.initialize();
             }
             
+            // ========== TICKET BUTTON HANDLER ==========
+            // Check for ticket buttons first (support and bug report)
+            if (interaction.customId === 'open_support_ticket' || 
+                interaction.customId === 'open_bug_report' ||
+                interaction.customId.startsWith('close_ticket_')) {
+                
+                // Get the ticket command module
+                const ticketCommand = client.commands.get('ticket');
+                if (ticketCommand && ticketCommand.handleInteraction) {
+                    await ticketCommand.handleInteraction(interaction, client, client.db);
+                    return;
+                } else {
+                    console.log('❌ Ticket command or handleInteraction method not found');
+                    // Fall back to direct handling if command not loaded properly
+                    await handleTicketFallback(interaction, client, client.db);
+                    return;
+                }
+            }
+            
             // ========== TTS PLAY AGAIN BUTTONS ==========
             if (interaction.customId.startsWith('tts_replay_')) {
                 await interaction.deferReply({ flags: 64 }); // 64 = Ephemeral flag
@@ -365,6 +384,96 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             
+            // ========== OLD TICKET BUTTON HANDLER (Legacy) ==========
+            if (interaction.customId.startsWith('ticket_')) {
+                try {
+                    const ticketModule = require('./commands/ticket/ticket.js');
+
+                    // Handle different ticket interactions
+                    if (interaction.customId === 'ticket_staff_apply') {
+                        await interaction.deferReply({ flags: 64 }); // Ephemeral
+                        await ticketModule.createTicket(interaction, 'Staff Application', 'Staff Position Application', client, client.db);
+                    }
+                    else if (interaction.customId === 'ticket_bug_report') {
+                        await interaction.deferReply({ flags: 64 }); // Ephemeral
+                        await ticketModule.createTicket(interaction, 'Bug Report', 'Bug/Issue Report', client, client.db);
+                    }
+                    else if (interaction.customId === 'ticket_user_report') {
+                        await interaction.deferReply({ flags: 64 }); // Ephemeral
+                        await ticketModule.createTicket(interaction, 'User Report', 'User Behavior Report', client, client.db);
+                    }
+                    else if (interaction.customId.startsWith('ticket_close_')) {
+                        const channelId = interaction.customId.split('_').pop();
+                        const channel = interaction.guild.channels.cache.get(channelId);
+
+                        if (!channel) {
+                            return interaction.reply({
+                                content: '❌ Ticket channel not found.',
+                                flags: 64 // Ephemeral
+                            });
+                        }
+
+                        // Check permissions
+                        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) && 
+                            !channel.permissionsFor(interaction.user).has(PermissionFlagsBits.ViewChannel)) {
+                            return interaction.reply({
+                                content: '❌ You cannot close this ticket.',
+                                flags: 64 // Ephemeral
+                            });
+                        }
+
+                        // Send closing message
+                        const closingEmbed = new EmbedBuilder()
+                            .setColor('#ff0000')
+                            .setTitle('🔒 Ticket Closing')
+                            .setDescription(`This ticket will be deleted in 10 seconds...`)
+                            .setFooter({ text: 'Thank you for using our support system' });
+
+                        await channel.send({ embeds: [closingEmbed] });
+
+                        // Delete channel after delay
+                        setTimeout(() => {
+                            channel.delete('Ticket closed').catch(console.error);
+                        }, 10000);
+
+                        await interaction.reply({
+                            content: '✅ Ticket scheduled for closure.',
+                            flags: 64 // Ephemeral
+                        });
+                    }
+                    else if (interaction.customId.startsWith('ticket_add_user_')) {
+                        await interaction.reply({
+                            content: '👥 Use `/ticket add @user` to add users to the ticket.',
+                            flags: 64 // Ephemeral
+                        });
+                    }
+                    else if (interaction.customId === 'ticket_reason_support') {
+                        // Support ticket reason select menu
+                        const reason = interaction.values[0];
+                        const reasons = {
+                            'general_support': 'General Support Request',
+                            'technical': 'Technical Issues',
+                            'account': 'Account Help',
+                            'purchase': 'Purchase Help',
+                            'other': 'Other Support'
+                        };
+                        const reasonText = reasons[reason] || 'Support Request';
+                        await interaction.deferReply({ flags: 64 }); // Ephemeral
+                        await ticketModule.createTicket(interaction, 'Support', reasonText, client, client.db);
+                    }
+
+                } catch (error) {
+                    console.error('Ticket interaction error:', error);
+                    if (!interaction.replied && !interaction.deferred) {
+                        await interaction.reply({
+                            content: '❌ An error occurred',
+                            flags: 64 // Ephemeral
+                        });
+                    }
+                }
+                return;
+            }
+            
             // ========== MUSIC BUTTON HANDLER ==========
             if (interaction.customId === 'music_pause_resume' || 
                 interaction.customId === 'music_skip' || 
@@ -484,6 +593,286 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 });
+
+// ========== FALLBACK TICKET HANDLER (if ticket command not loaded properly) ==========
+async function handleTicketFallback(interaction, client, db) {
+    try {
+        if (interaction.customId === 'open_support_ticket') {
+            await interaction.deferReply({ flags: 64 });
+            
+            const guild = interaction.guild;
+            const user = interaction.user;
+            
+            // Find or create category
+            let category = guild.channels.cache.find(
+                c => c.type === ChannelType.GuildCategory && 
+                c.name.toLowerCase().includes('tickets')
+            );
+            
+            if (!category) {
+                category = await guild.channels.create({
+                    name: '🎫 Tickets',
+                    type: ChannelType.GuildCategory,
+                    permissionOverwrites: [
+                        {
+                            id: guild.roles.everyone.id,
+                            deny: [PermissionFlagsBits.ViewChannel]
+                        }
+                    ]
+                });
+            }
+            
+            // Create ticket channel
+            const ticketNumber = Date.now().toString().slice(-6);
+            const ticketChannel = await guild.channels.create({
+                name: `ticket-${user.username.toLowerCase()}-${ticketNumber}`,
+                type: ChannelType.GuildText,
+                parent: category.id,
+                topic: `Support ticket for ${user.tag} (${user.id}) | Created: ${new Date().toISOString()}`,
+                permissionOverwrites: [
+                    {
+                        id: guild.roles.everyone.id,
+                        deny: [PermissionFlagsBits.ViewChannel]
+                    },
+                    {
+                        id: user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory,
+                            PermissionFlagsBits.AttachFiles,
+                            PermissionFlagsBits.EmbedLinks
+                        ]
+                    }
+                ]
+            });
+            
+            // Find staff role
+            const staffRole = guild.roles.cache.find(r => 
+                r.name.toLowerCase().includes('staff') || 
+                r.name.toLowerCase().includes('mod') ||
+                r.name.toLowerCase().includes('admin') ||
+                r.name.toLowerCase().includes('support')
+            );
+            
+            if (staffRole) {
+                await ticketChannel.permissionOverwrites.create(staffRole.id, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    ReadMessageHistory: true,
+                    ManageMessages: true,
+                    ManageChannels: true
+                });
+            }
+            
+            // Send welcome message
+            const welcomeEmbed = new EmbedBuilder()
+                .setColor('#5865F2')
+                .setTitle('🎫 Support Ticket Created')
+                .setDescription(`Hello ${user.toString()}! Our support team will assist you shortly.`)
+                .addFields(
+                    { name: '👤 Created By', value: user.tag, inline: true },
+                    { name: '🆔 User ID', value: `\`${user.id}\``, inline: true },
+                    { name: '📅 Created At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+                    { 
+                        name: '📝 How to Get Help', 
+                        value: 'Please describe your issue in detail.', 
+                        inline: false 
+                    }
+                )
+                .setFooter({ text: 'DTEmpire Support System' })
+                .setTimestamp();
+            
+            const closeButton = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`close_ticket_${ticketChannel.id}`)
+                        .setLabel('Close Ticket')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('🔒')
+                );
+            
+            await ticketChannel.send({
+                content: `${user.toString()} ${staffRole ? staffRole.toString() : ''}`,
+                embeds: [welcomeEmbed],
+                components: [closeButton]
+            });
+            
+            await interaction.editReply({
+                content: `✅ Your support ticket has been created: ${ticketChannel.toString()}`
+            });
+        }
+        
+        else if (interaction.customId === 'open_bug_report') {
+            await interaction.deferReply({ flags: 64 });
+            
+            const guild = interaction.guild;
+            const user = interaction.user;
+            
+            // Find or create bug category
+            let bugCategory = guild.channels.cache.find(
+                c => c.type === ChannelType.GuildCategory && 
+                c.name.toLowerCase().includes('bug')
+            );
+            
+            if (!bugCategory) {
+                bugCategory = await guild.channels.create({
+                    name: '🐛 Bug Reports',
+                    type: ChannelType.GuildCategory,
+                    permissionOverwrites: [
+                        {
+                            id: guild.roles.everyone.id,
+                            deny: [PermissionFlagsBits.ViewChannel]
+                        }
+                    ]
+                });
+            }
+            
+            // Create bug report channel
+            const bugNumber = Date.now().toString().slice(-6);
+            const bugChannel = await guild.channels.create({
+                name: `bug-${user.username.toLowerCase()}-${bugNumber}`,
+                type: ChannelType.GuildText,
+                parent: bugCategory.id,
+                topic: `Bug report from ${user.tag} (${user.id}) | Created: ${new Date().toISOString()}`,
+                permissionOverwrites: [
+                    {
+                        id: guild.roles.everyone.id,
+                        deny: [PermissionFlagsBits.ViewChannel]
+                    },
+                    {
+                        id: user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory,
+                            PermissionFlagsBits.AttachFiles,
+                            PermissionFlagsBits.EmbedLinks
+                        ]
+                    }
+                ]
+            });
+            
+            // Find developer/admin role
+            const devRole = guild.roles.cache.find(r => 
+                r.name.toLowerCase().includes('dev') || 
+                r.name.toLowerCase().includes('developer') ||
+                r.name.toLowerCase().includes('admin') ||
+                r.name.toLowerCase().includes('staff')
+            );
+            
+            if (devRole) {
+                await bugChannel.permissionOverwrites.create(devRole.id, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    ReadMessageHistory: true,
+                    ManageMessages: true,
+                    ManageChannels: true
+                });
+            }
+            
+            // Send bug report form
+            const bugEmbed = new EmbedBuilder()
+                .setColor('#FF6B6B')
+                .setTitle('🐛 Bug Report Created')
+                .setDescription(`Hello ${user.toString()}! Please describe the bug you encountered.`)
+                .addFields(
+                    { 
+                        name: '📋 Required Information', 
+                        value: 'Please include:\n• What happened\n• Steps to reproduce\n• Expected behavior\n• Actual behavior\n• Screenshots if available', 
+                        inline: false 
+                    },
+                    { name: '👤 Reported By', value: user.tag, inline: true },
+                    { name: '🆔 User ID', value: `\`${user.id}\``, inline: true }
+                )
+                .setFooter({ text: 'DTEmpire Bug Report System' })
+                .setTimestamp();
+            
+            const closeButton = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`close_ticket_${bugChannel.id}`)
+                        .setLabel('Close Report')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('🔒')
+                );
+            
+            await bugChannel.send({
+                content: `${user.toString()} ${devRole ? devRole.toString() : ''}`,
+                embeds: [bugEmbed],
+                components: [closeButton]
+            });
+            
+            await interaction.editReply({
+                content: `✅ Your bug report has been created: ${bugChannel.toString()}`
+            });
+        }
+        
+        else if (interaction.customId.startsWith('close_ticket_')) {
+            const channelId = interaction.customId.replace('close_ticket_', '');
+            const channel = interaction.guild.channels.cache.get(channelId);
+            
+            if (!channel) {
+                return await interaction.reply({
+                    content: '❌ Ticket channel not found.',
+                    flags: 64 // Ephemeral
+                });
+            }
+            
+            // Check permissions
+            const hasPermission = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+                                 interaction.member.roles.cache.some(role => 
+                                     role.name.toLowerCase().includes('staff') ||
+                                     role.name.toLowerCase().includes('mod') ||
+                                     role.name.toLowerCase().includes('admin')
+                                 ) ||
+                                 channel.topic?.includes(`(${interaction.user.id})`);
+            
+            if (!hasPermission) {
+                return await interaction.reply({
+                    content: '❌ You do not have permission to close this ticket.',
+                    flags: 64 // Ephemeral
+                });
+            }
+            
+            const closeEmbed = new EmbedBuilder()
+                .setColor('#FF6B6B')
+                .setTitle('🎫 Ticket Closed')
+                .setDescription(`This ticket has been closed by ${interaction.user.tag}`)
+                .addFields(
+                    { name: 'Closed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+                    { name: 'Ticket', value: channel.name, inline: true }
+                )
+                .setFooter({ text: 'This channel will be deleted in 10 seconds' })
+                .setTimestamp();
+            
+            await channel.send({ embeds: [closeEmbed] });
+            
+            await interaction.reply({
+                content: '✅ Ticket closed. Channel will be deleted shortly.',
+                flags: 64 // Ephemeral
+            });
+            
+            // Delete channel after delay
+            setTimeout(async () => {
+                try {
+                    await channel.delete('Ticket closed by user');
+                } catch (error) {
+                    console.log('Could not delete channel:', error.message);
+                }
+            }, 10000);
+        }
+        
+    } catch (error) {
+        console.error('Fallback ticket handler error:', error);
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+                content: '❌ An error occurred. Please try again.',
+                flags: 64 // Ephemeral
+            });
+        }
+    }
+}
 
 // ========== LOGGING EVENT LISTENERS ==========
 
@@ -1069,6 +1458,7 @@ client.on('ready', async () => {
         }
     }
     
+
     // Start interval checkers with client reference
     startGiveawayInterval(client);
     startMuteChecker();

@@ -14,7 +14,10 @@ class Database {
             jobs: {}, // Added for job system
             lottery: {}, // Added for lottery system
             transactions: {}, // Added for transaction history
-            stickyMessages: {} // Added for sticky messages
+            stickyMessages: {}, // Added for sticky messages
+            tickets: {}, // Added for ticket system
+            ticketSystems: {}, // Added for ticket system configurations
+            ticketLogs: {} // Added for ticket logs
         };
         this.dbPath = path.join(__dirname, '..', 'data', 'database.json');
     }
@@ -115,8 +118,7 @@ class Database {
                 guild_id: guildId,
                 prefix: '.',
                 
-                
-                 // ========== AUTOROOM SETTINGS ==========
+                // ========== AUTOROOM SETTINGS ==========
                 autoroom_creator: null,
                 autoroom_category: null,
                 autoroom_format: null,
@@ -261,6 +263,9 @@ class Database {
                 ticket_category: null,
                 ticket_log_channel: null,
                 ticket_support_role: null,
+                ticket_panel_channel: null, // Added
+                ticket_type: null, // 'support', 'staff', 'bug', 'reports'
+                ticket_counter: 0, // Ticket counter for unique IDs
                 
                 // ========== VERIFICATION SYSTEM ==========
                 verification_enabled: false,
@@ -278,6 +283,7 @@ class Database {
                 total_commands: 0,
                 total_joins: 0,
                 total_leaves: 0,
+                total_tickets: 0, // Added
                 created_at: Date.now(),
                 updated_at: Date.now()
             };
@@ -293,6 +299,469 @@ class Database {
         this.data.guildConfigs[guildId] = config;
         this.save();
         return config;
+    }
+
+    // ========== TICKET SYSTEM METHODS ==========
+    
+    async createTicket(ticketData) {
+        if (!this.data.tickets) this.data.tickets = {};
+        
+        const ticketId = `TICKET-${Date.now().toString().slice(-6)}`;
+        const ticket = {
+            id: ticketId,
+            ...ticketData,
+            status: 'open',
+            created_at: Date.now(),
+            updated_at: Date.now(),
+            closed_at: null,
+            transcript_id: null,
+            participants: [ticketData.user_id],
+            messages: []
+        };
+        
+        this.data.tickets[ticketId] = ticket;
+        
+        // Increment guild ticket counter
+        if (ticketData.guild_id) {
+            const config = await this.getGuildConfig(ticketData.guild_id);
+            config.total_tickets = (config.total_tickets || 0) + 1;
+            config.ticket_counter = (config.ticket_counter || 0) + 1;
+            await this.updateGuildConfig(ticketData.guild_id, {
+                total_tickets: config.total_tickets,
+                ticket_counter: config.ticket_counter
+            });
+        }
+        
+        this.save();
+        return ticket;
+    }
+
+    async getTicket(ticketId) {
+        if (!this.data.tickets) return null;
+        return this.data.tickets[ticketId] || null;
+    }
+
+    async getTicketByChannel(channelId) {
+        if (!this.data.tickets) return null;
+        
+        for (const ticketId in this.data.tickets) {
+            const ticket = this.data.tickets[ticketId];
+            if (ticket.channel_id === channelId) {
+                return ticket;
+            }
+        }
+        return null;
+    }
+
+    async getTicketByUserId(userId, guildId) {
+        if (!this.data.tickets) return null;
+        
+        for (const ticketId in this.data.tickets) {
+            const ticket = this.data.tickets[ticketId];
+            if (ticket.user_id === userId && ticket.guild_id === guildId && ticket.status === 'open') {
+                return ticket;
+            }
+        }
+        return null;
+    }
+
+    async updateTicket(ticketId, updates) {
+        if (!this.data.tickets || !this.data.tickets[ticketId]) return null;
+        
+        Object.assign(this.data.tickets[ticketId], updates);
+        this.data.tickets[ticketId].updated_at = Date.now();
+        this.save();
+        return this.data.tickets[ticketId];
+    }
+
+    async closeTicket(ticketId, reason = 'Closed by user') {
+        if (!this.data.tickets || !this.data.tickets[ticketId]) return null;
+        
+        const updates = {
+            status: 'closed',
+            closed_at: Date.now(),
+            closed_by: 'system',
+            close_reason: reason
+        };
+        
+        return await this.updateTicket(ticketId, updates);
+    }
+
+    async deleteTicket(ticketId) {
+        if (!this.data.tickets || !this.data.tickets[ticketId]) return false;
+        
+        delete this.data.tickets[ticketId];
+        this.save();
+        return true;
+    }
+
+    async getOpenTickets(guildId) {
+        if (!this.data.tickets) return [];
+        
+        const openTickets = [];
+        for (const ticketId in this.data.tickets) {
+            const ticket = this.data.tickets[ticketId];
+            if (ticket.guild_id === guildId && ticket.status === 'open') {
+                openTickets.push(ticket);
+            }
+        }
+        return openTickets;
+    }
+
+    async getClosedTickets(guildId) {
+        if (!this.data.tickets) return [];
+        
+        const closedTickets = [];
+        for (const ticketId in this.data.tickets) {
+            const ticket = this.data.tickets[ticketId];
+            if (ticket.guild_id === guildId && ticket.status === 'closed') {
+                closedTickets.push(ticket);
+            }
+        }
+        return closedTickets;
+    }
+
+    async getAllTickets(guildId) {
+        if (!this.data.tickets) return [];
+        
+        const tickets = [];
+        for (const ticketId in this.data.tickets) {
+            const ticket = this.data.tickets[ticketId];
+            if (ticket.guild_id === guildId) {
+                tickets.push(ticket);
+            }
+        }
+        return tickets;
+    }
+
+    async addParticipantToTicket(ticketId, userId) {
+        if (!this.data.tickets || !this.data.tickets[ticketId]) return null;
+        
+        const ticket = this.data.tickets[ticketId];
+        if (!ticket.participants.includes(userId)) {
+            ticket.participants.push(userId);
+            ticket.updated_at = Date.now();
+            this.save();
+        }
+        return ticket;
+    }
+
+    async removeParticipantFromTicket(ticketId, userId) {
+        if (!this.data.tickets || !this.data.tickets[ticketId]) return null;
+        
+        const ticket = this.data.tickets[ticketId];
+        ticket.participants = ticket.participants.filter(id => id !== userId);
+        ticket.updated_at = Date.now();
+        this.save();
+        return ticket;
+    }
+
+    async addMessageToTicket(ticketId, messageData) {
+        if (!this.data.tickets || !this.data.tickets[ticketId]) return null;
+        
+        const ticket = this.data.tickets[ticketId];
+        if (!ticket.messages) ticket.messages = [];
+        
+        const message = {
+            id: messageData.id || Date.now().toString(),
+            user_id: messageData.user_id,
+            username: messageData.username,
+            content: messageData.content,
+            timestamp: messageData.timestamp || Date.now(),
+            attachments: messageData.attachments || []
+        };
+        
+        ticket.messages.push(message);
+        ticket.updated_at = Date.now();
+        this.save();
+        return ticket;
+    }
+
+    async getTicketMessages(ticketId, limit = 100) {
+        if (!this.data.tickets || !this.data.tickets[ticketId]) return [];
+        
+        const ticket = this.data.tickets[ticketId];
+        if (!ticket.messages) return [];
+        
+        return ticket.messages.slice(-limit); // Get last N messages
+    }
+
+    async saveTicketTranscript(ticketId, transcriptData) {
+        if (!this.data.tickets || !this.data.tickets[ticketId]) return null;
+        
+        const transcriptId = `TRANSCRIPT-${Date.now().toString().slice(-8)}`;
+        const updates = {
+            transcript_id: transcriptId,
+            transcript_data: transcriptData,
+            updated_at: Date.now()
+        };
+        
+        return await this.updateTicket(ticketId, updates);
+    }
+
+    // ========== TICKET LOGGING METHODS ==========
+    
+    async saveTicketLog(logData) {
+        try {
+            if (!this.data.ticketLogs) {
+                this.data.ticketLogs = {};
+            }
+            
+            const logId = `TLOG-${Date.now().toString().slice(-8)}`;
+            const guildId = logData.guildId;
+            
+            if (!this.data.ticketLogs[guildId]) {
+                this.data.ticketLogs[guildId] = [];
+            }
+            
+            const fullLogData = {
+                id: logId,
+                ...logData,
+                logged_at: Date.now()
+            };
+            
+            this.data.ticketLogs[guildId].push(fullLogData);
+            
+            // Keep only last 500 logs per guild to prevent bloating
+            if (this.data.ticketLogs[guildId].length > 500) {
+                this.data.ticketLogs[guildId] = this.data.ticketLogs[guildId].slice(-500);
+            }
+            
+            this.save();
+            return logId;
+        } catch (error) {
+            console.error('Save ticket log error:', error);
+            return null;
+        }
+    }
+
+    async getTicketLogs(guildId, limit = 10, offset = 0) {
+        try {
+            if (!this.data.ticketLogs || !this.data.ticketLogs[guildId]) {
+                return [];
+            }
+            
+            const logs = this.data.ticketLogs[guildId];
+            
+            // Sort by most recent first
+            logs.sort((a, b) => new Date(b.logged_at || b.closedAt || 0) - new Date(a.logged_at || a.closedAt || 0));
+            
+            return logs.slice(offset, offset + limit);
+        } catch (error) {
+            console.error('Get ticket logs error:', error);
+            return [];
+        }
+    }
+
+    async getTicketLogCount(guildId) {
+        try {
+            if (!this.data.ticketLogs || !this.data.ticketLogs[guildId]) {
+                return 0;
+            }
+            
+            return this.data.ticketLogs[guildId].length;
+        } catch (error) {
+            console.error('Get ticket log count error:', error);
+            return 0;
+        }
+    }
+
+    async getTicketLogById(logId) {
+        try {
+            if (!this.data.ticketLogs) return null;
+            
+            for (const guildId in this.data.ticketLogs) {
+                const log = this.data.ticketLogs[guildId].find(l => l.id === logId);
+                if (log) return log;
+            }
+            return null;
+        } catch (error) {
+            console.error('Get ticket log by ID error:', error);
+            return null;
+        }
+    }
+
+    async searchTicketLogs(guildId, query = '', ticketType = '') {
+        try {
+            if (!this.data.ticketLogs || !this.data.ticketLogs[guildId]) {
+                return [];
+            }
+            
+            query = query.toLowerCase();
+            let logs = this.data.ticketLogs[guildId];
+            
+            // Filter by ticket type if specified
+            if (ticketType) {
+                logs = logs.filter(log => 
+                    log.ticketType && log.ticketType.toLowerCase() === ticketType.toLowerCase()
+                );
+            }
+            
+            // Filter by search query
+            if (query) {
+                logs = logs.filter(log => 
+                    (log.userTag && log.userTag.toLowerCase().includes(query)) ||
+                    (log.reason && log.reason.toLowerCase().includes(query)) ||
+                    (log.ticketType && log.ticketType.toLowerCase().includes(query)) ||
+                    (log.closedByTag && log.closedByTag.toLowerCase().includes(query))
+                );
+            }
+            
+            // Sort by most recent first
+            logs.sort((a, b) => new Date(b.logged_at || b.closedAt || 0) - new Date(a.logged_at || a.closedAt || 0));
+            
+            return logs;
+        } catch (error) {
+            console.error('Search ticket logs error:', error);
+            return [];
+        }
+    }
+
+    async getTicketStatistics(guildId) {
+        try {
+            if (!this.data.ticketLogs || !this.data.ticketLogs[guildId]) {
+                return {
+                    total: 0,
+                    byType: {},
+                    byCloser: {},
+                    recentCounts: []
+                };
+            }
+            
+            const logs = this.data.ticketLogs[guildId];
+            const stats = {
+                total: logs.length,
+                byType: {},
+                byCloser: {},
+                recentCounts: []
+            };
+            
+            // Count by ticket type
+            for (const log of logs) {
+                const type = log.ticketType || 'Unknown';
+                stats.byType[type] = (stats.byType[type] || 0) + 1;
+                
+                // Count by closer
+                if (log.closedByTag) {
+                    stats.byCloser[log.closedByTag] = (stats.byCloser[log.closedByTag] || 0) + 1;
+                }
+            }
+            
+            // Get counts for last 7 days
+            const now = Date.now();
+            for (let i = 6; i >= 0; i--) {
+                const dayStart = new Date(now - i * 24 * 60 * 60 * 1000);
+                dayStart.setHours(0, 0, 0, 0);
+                const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+                
+                const dayLogs = logs.filter(log => {
+                    const logTime = log.logged_at || log.closedAt || 0;
+                    return logTime >= dayStart.getTime() && logTime < dayEnd.getTime();
+                });
+                
+                stats.recentCounts.push({
+                    date: dayStart.toISOString().split('T')[0],
+                    count: dayLogs.length
+                });
+            }
+            
+            return stats;
+        } catch (error) {
+            console.error('Get ticket statistics error:', error);
+            return {
+                total: 0,
+                byType: {},
+                byCloser: {},
+                recentCounts: []
+            };
+        }
+    }
+
+    async deleteOldTicketLogs(guildId, maxAgeDays = 30) {
+        try {
+            if (!this.data.ticketLogs || !this.data.ticketLogs[guildId]) {
+                return 0;
+            }
+            
+            const maxAge = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+            const oldLogs = this.data.ticketLogs[guildId].filter(log => 
+                (log.logged_at || log.closedAt || 0) < maxAge
+            );
+            
+            const deletedCount = oldLogs.length;
+            this.data.ticketLogs[guildId] = this.data.ticketLogs[guildId].filter(log => 
+                (log.logged_at || log.closedAt || 0) >= maxAge
+            );
+            
+            if (deletedCount > 0) {
+                this.save();
+            }
+            
+            return deletedCount;
+        } catch (error) {
+            console.error('Delete old ticket logs error:', error);
+            return 0;
+        }
+    }
+
+    // ========== TICKET SYSTEM CONFIGURATION METHODS ==========
+    
+    async getTicketSystem(guildId, systemType) {
+        if (!this.data.ticketSystems) this.data.ticketSystems = {};
+        
+        const key = `${guildId}_${systemType}`;
+        if (!this.data.ticketSystems[key]) {
+            this.data.ticketSystems[key] = {
+                guild_id: guildId,
+                type: systemType,
+                enabled: false,
+                category_id: null,
+                panel_channel_id: null,
+                support_role_id: null,
+                log_channel_id: null,
+                welcome_message: getDefaultWelcomeMessage(systemType),
+                button_label: getDefaultButtonLabel(systemType),
+                button_emoji: getDefaultButtonEmoji(systemType),
+                button_color: getDefaultButtonColor(systemType),
+                created_at: Date.now(),
+                updated_at: Date.now()
+            };
+            this.save();
+        }
+        return this.data.ticketSystems[key];
+    }
+
+    async updateTicketSystem(guildId, systemType, updates) {
+        const system = await this.getTicketSystem(guildId, systemType);
+        Object.assign(system, updates);
+        system.updated_at = Date.now();
+        
+        const key = `${guildId}_${systemType}`;
+        this.data.ticketSystems[key] = system;
+        this.save();
+        return system;
+    }
+
+    async deleteTicketSystem(guildId, systemType) {
+        const key = `${guildId}_${systemType}`;
+        if (this.data.ticketSystems && this.data.ticketSystems[key]) {
+            delete this.data.ticketSystems[key];
+            this.save();
+            return true;
+        }
+        return false;
+    }
+
+    async getAllTicketSystems(guildId) {
+        if (!this.data.ticketSystems) return [];
+        
+        const systems = [];
+        for (const key in this.data.ticketSystems) {
+            if (key.startsWith(`${guildId}_`)) {
+                systems.push(this.data.ticketSystems[key]);
+            }
+        }
+        return systems;
     }
 
     // Economy methods
@@ -736,6 +1205,28 @@ class Database {
                 }
             }
 
+            // Clean closed tickets older than 30 days
+            if (this.data.tickets) {
+                for (const ticketId in this.data.tickets) {
+                    const ticket = this.data.tickets[ticketId];
+                    if (ticket.status === 'closed' && ticket.closed_at && ticket.closed_at < maxAge) {
+                        delete this.data.tickets[ticketId];
+                        cleaned++;
+                    }
+                }
+            }
+
+            // Clean old ticket logs (older than 90 days)
+            if (this.data.ticketLogs) {
+                for (const guildId in this.data.ticketLogs) {
+                    const oldCount = this.data.ticketLogs[guildId].length;
+                    this.data.ticketLogs[guildId] = this.data.ticketLogs[guildId].filter(log => 
+                        (log.logged_at || log.closedAt || 0) > maxAge
+                    );
+                    cleaned += (oldCount - this.data.ticketLogs[guildId].length);
+                }
+            }
+
             if (cleaned > 0) {
                 this.save();
                 console.log(`✅ Cleaned ${cleaned} old data entries`);
@@ -835,6 +1326,118 @@ class Database {
             return false;
         }
     }
+
+    // ========== STATISTICS METHODS ==========
+    async getTicketStatistics(guildId) {
+        const allTickets = await this.getAllTickets(guildId);
+        const openTickets = await this.getOpenTickets(guildId);
+        const closedTickets = await this.getClosedTickets(guildId);
+        
+        return {
+            total: allTickets.length,
+            open: openTickets.length,
+            closed: closedTickets.length,
+            by_type: this.getTicketCountByType(allTickets),
+            by_status: this.getTicketCountByStatus(allTickets)
+        };
+    }
+
+    getTicketCountByType(tickets) {
+        const count = {};
+        tickets.forEach(ticket => {
+            count[ticket.type] = (count[ticket.type] || 0) + 1;
+        });
+        return count;
+    }
+
+    getTicketCountByStatus(tickets) {
+        const count = {};
+        tickets.forEach(ticket => {
+            count[ticket.status] = (count[ticket.status] || 0) + 1;
+        });
+        return count;
+    }
+
+    // ========== SEARCH METHODS ==========
+    async searchTickets(guildId, query) {
+        if (!this.data.tickets) return [];
+        
+        const results = [];
+        query = query.toLowerCase();
+        
+        for (const ticketId in this.data.tickets) {
+            const ticket = this.data.tickets[ticketId];
+            if (ticket.guild_id !== guildId) continue;
+            
+            // Search in various fields
+            if (
+                ticket.id.toLowerCase().includes(query) ||
+                (ticket.user_name && ticket.user_name.toLowerCase().includes(query)) ||
+                (ticket.reason && ticket.reason.toLowerCase().includes(query)) ||
+                (ticket.type && ticket.type.toLowerCase().includes(query))
+            ) {
+                results.push(ticket);
+            }
+        }
+        
+        return results;
+    }
+
+    async getUserTickets(userId, guildId) {
+        if (!this.data.tickets) return [];
+        
+        const userTickets = [];
+        for (const ticketId in this.data.tickets) {
+            const ticket = this.data.tickets[ticketId];
+            if (ticket.user_id === userId && ticket.guild_id === guildId) {
+                userTickets.push(ticket);
+            }
+        }
+        
+        return userTickets;
+    }
+}
+
+// ========== HELPER FUNCTIONS ==========
+
+function getDefaultWelcomeMessage(systemType) {
+    const messages = {
+        support: 'Hello {user}, thank you for creating a support ticket. Our team will assist you shortly. Please describe your issue in detail.',
+        staff: 'Hello {user}, thank you for applying for staff! Please fill out the application form below.',
+        bug: 'Hello {user}, thank you for reporting a bug. Please describe the issue, steps to reproduce, and what you expected to happen.',
+        reports: 'Hello {user}, thank you for your report. Please provide details about the user and evidence of the issue.'
+    };
+    return messages[systemType] || 'Thank you for creating a ticket. Our team will assist you shortly.';
+}
+
+function getDefaultButtonLabel(systemType) {
+    const labels = {
+        support: 'Open Support Ticket',
+        staff: 'Apply for Staff',
+        bug: 'Report a Bug',
+        reports: 'Report a User'
+    };
+    return labels[systemType] || 'Create Ticket';
+}
+
+function getDefaultButtonEmoji(systemType) {
+    const emojis = {
+        support: '🎫',
+        staff: '👥',
+        bug: '🐛',
+        reports: '🚨'
+    };
+    return emojis[systemType] || '📝';
+}
+
+function getDefaultButtonColor(systemType) {
+    const colors = {
+        support: '#0061ff', // Blue
+        staff: '#ff9900',   // Orange
+        bug: '#ff0000',     // Red
+        reports: '#9900ff'  // Purple
+    };
+    return colors[systemType] || '#0099ff';
 }
 
 module.exports = Database;

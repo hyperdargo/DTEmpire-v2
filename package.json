@@ -17,7 +17,9 @@
     "play-dl": "^1.9.7",
     "spotify-url-info": "^3.2.2",
     "riffy": "^1.0.0",
-    "riffy-spotify": "^1.0.0"
+    "riffy-spotify": "^1.0.0",
+    "uuid": "^9.0.1",
+    "chartjs-node-canvas": "^4.1.6"
   },
   "author": "DargoTamber",
   "license": "MIT"

@@ -110,6 +110,33 @@ class LoggingSystem {
         }
     }
 
+    // ========== TICKET LOGS ==========
+    async logTicketCreate(guildId, user, channel, type, reason) {
+        try {
+            const embedData = {
+                title: '🎫 Ticket Created',
+                color: '#0061ff',
+                description: `A new ${type} ticket has been created`,
+                fields: [
+                    { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
+                    { name: 'Ticket Type', value: type, inline: true },
+                    { name: 'Channel', value: channelMention(channel.id), inline: true },
+                    { name: 'Reason', value: reason || 'Not specified', inline: false }
+                ],
+                footer: { text: 'DTEmpire Ticket System' }
+            };
+
+            const success = await this.logToChannel(guildId, 'ticket', embedData);
+            if (success) {
+                console.log(`✅ Logged ticket create: ${user.tag} - ${type}`);
+            }
+            return success;
+        } catch (error) {
+            console.error('Ticket log error:', error);
+            return false;
+        }
+    }
+
     // ========== MODERATION LOGS ==========
     async logModeration(guildId, action, target, moderator, reason = 'No reason provided', duration = null) {
         const actionColors = {

@@ -62,6 +62,12 @@ module.exports = {
             case 'test':
                 await testAutoMod(message);
                 break;
+            case 'addrole':
+                await handleAddRole(message, args.slice(1), client);
+                break;
+            case 'removerole':
+                await handleRemoveRole(message, args.slice(1), client);
+                break;    
             case 'help':
                 const helpEmbed = createHelpEmbed();
                 await message.reply({ embeds: [helpEmbed] });
@@ -472,7 +478,131 @@ async function testAutoMod(message) {
         message.reply('❌ Failed to test auto-mod.');
     }
 }
+// ========== ADD ROLE COMMAND ==========
+async function handleAddRole(message, args, client) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return message.reply('❌ You need **Manage Roles** permission.');
+    }
+    
+    if (args.length < 2) {
+        return message.reply('❌ Usage: `^mod addrole {role name} @username`\nExample: `^mod addrole VIP @user`');
+    }
+    
+    const roleName = args[0];
+    const user = message.mentions.users.first();
+    
+    if (!user) {
+        return message.reply('❌ Please mention a user to add the role to.');
+    }
+    
+    try {
+        // Find role by name
+        const role = message.guild.roles.cache.find(r => 
+            r.name.toLowerCase() === roleName.toLowerCase()
+        );
+        
+        if (!role) {
+            return message.reply(`❌ Role \`${roleName}\` not found.`);
+        }
+        
+        // Check if bot can manage this role
+        if (role.position >= message.guild.members.me.roles.highest.position) {
+            return message.reply('❌ I cannot manage this role (it\'s higher than my highest role).');
+        }
+        
+        const member = await message.guild.members.fetch(user.id);
+        
+        if (member.roles.cache.has(role.id)) {
+            return message.reply(`❌ ${user.tag} already has the ${role.name} role.`);
+        }
+        
+        await member.roles.add(role, `Added by ${message.author.tag}`);
+        
+        const embed = new EmbedBuilder()
+            .setColor(role.color || '#00ff00')
+            .setTitle('✅ Role Added')
+            .addFields(
+                { name: 'User', value: user.tag, inline: true },
+                { name: 'Role', value: role.name, inline: true },
+                { name: 'Added by', value: message.author.tag, inline: true }
+            )
+            .setTimestamp();
+        
+        await message.reply({ embeds: [embed] });
+        
+        // Log the action
+        if (client.loggingSystem) {
+            await client.loggingSystem.logRoleAdd(message.guild.id, member, role, message.author);
+        }
+        
+    } catch (error) {
+        console.error('Add role error:', error);
+        message.reply('❌ Failed to add role. Check my permissions.');
+    }
+}
 
+// ========== REMOVE ROLE COMMAND ==========
+async function handleRemoveRole(message, args, client) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return message.reply('❌ You need **Manage Roles** permission.');
+    }
+    
+    if (args.length < 2) {
+        return message.reply('❌ Usage: `^mod removerole {role name} @username`\nExample: `^mod removerole VIP @user`');
+    }
+    
+    const roleName = args[0];
+    const user = message.mentions.users.first();
+    
+    if (!user) {
+        return message.reply('❌ Please mention a user to remove the role from.');
+    }
+    
+    try {
+        // Find role by name
+        const role = message.guild.roles.cache.find(r => 
+            r.name.toLowerCase() === roleName.toLowerCase()
+        );
+        
+        if (!role) {
+            return message.reply(`❌ Role \`${roleName}\` not found.`);
+        }
+        
+        // Check if bot can manage this role
+        if (role.position >= message.guild.members.me.roles.highest.position) {
+            return message.reply('❌ I cannot manage this role (it\'s higher than my highest role).');
+        }
+        
+        const member = await message.guild.members.fetch(user.id);
+        
+        if (!member.roles.cache.has(role.id)) {
+            return message.reply(`❌ ${user.tag} doesn't have the ${role.name} role.`);
+        }
+        
+        await member.roles.remove(role, `Removed by ${message.author.tag}`);
+        
+        const embed = new EmbedBuilder()
+            .setColor('#ff5500')
+            .setTitle('🚫 Role Removed')
+            .addFields(
+                { name: 'User', value: user.tag, inline: true },
+                { name: 'Role', value: role.name, inline: true },
+                { name: 'Removed by', value: message.author.tag, inline: true }
+            )
+            .setTimestamp();
+        
+        await message.reply({ embeds: [embed] });
+        
+        // Log the action
+        if (client.loggingSystem) {
+            await client.loggingSystem.logRoleRemove(message.guild.id, member, role, message.author);
+        }
+        
+    } catch (error) {
+        console.error('Remove role error:', error);
+        message.reply('❌ Failed to remove role. Check my permissions.');
+    }
+}
 // ========== WARN COMMAND ==========
 async function handleWarn(message, args, client) {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
