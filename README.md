@@ -192,4 +192,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 *Last Updated: v2.6.9 | Made with ❤️ for the Discord community*
-```
