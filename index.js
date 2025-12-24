@@ -194,9 +194,9 @@ module.exports = {
 
 // ========== INTERACTION HANDLER ==========
 client.on('interactionCreate', async (interaction) => {
-    // Handle button interactions
-    if (interaction.isButton()) {
-        console.log(`[Button] Clicked: ${interaction.customId}`);
+    // Handle button AND select menu interactions
+    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+        console.log(`[Interaction] Type: ${interaction.isButton() ? 'Button' : 'Select Menu'}, Custom ID: ${interaction.customId}`);
         
         try {
             // Initialize database if needed
@@ -206,12 +206,15 @@ client.on('interactionCreate', async (interaction) => {
                 client.db = await dbInstance.initialize();
             }
             
-            // ========== TICKET BUTTON HANDLER ==========
-            // Check for ticket buttons first (support and bug report)
+            // ========== TICKET BUTTON & SELECT MENU HANDLER ==========
+            // Check for ticket interactions (buttons AND select menus)
             if (interaction.customId === 'open_support_ticket' || 
                 interaction.customId === 'open_bug_report' ||
+                interaction.customId === 'open_staff_application' ||
+                interaction.customId === 'open_user_report' ||
+                interaction.customId === 'support_reason_select' ||
                 interaction.customId.startsWith('close_ticket_')) {
-                
+
                 // Get the ticket command module
                 const ticketCommand = client.commands.get('ticket');
                 if (ticketCommand && ticketCommand.handleInteraction) {
@@ -224,7 +227,8 @@ client.on('interactionCreate', async (interaction) => {
                     return;
                 }
             }
-            
+            // ... rest of the code continues as before
+
             // ========== TTS PLAY AGAIN BUTTONS ==========
             if (interaction.customId.startsWith('tts_replay_')) {
                 await interaction.deferReply({ flags: 64 }); // 64 = Ephemeral flag
