@@ -689,8 +689,20 @@ async function handleLevelButton(interaction, client, db) {
 
 // ========== CALCULATE LEVEL FROM XP ==========
 function calculateLevelFromXP(xp) {
-    const level = Math.floor(Math.sqrt(xp / 100));
-    return Math.max(1, level); // Ensure at least level 1
+    if (xp <= 0) return 1;
+    
+    // Using the formula: XP = level² × 100
+    // So: level = sqrt(XP / 100)
+    const calculatedLevel = Math.floor(Math.sqrt(xp / 100));
+    
+    // Ensure at least level 1
+    return Math.max(1, calculatedLevel);
+}
+
+// ========== CALCULATE XP FOR LEVEL ==========
+function calculateXPForLevel(level) {
+    if (level <= 1) return 0;
+    return Math.floor(Math.pow(level, 2) * 100);
 }
 
 // Export for use in index.js
