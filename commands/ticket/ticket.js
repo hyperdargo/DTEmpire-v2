@@ -60,13 +60,16 @@ module.exports = {
     },
     
     // This function will be called from index.js to handle button interactions
+   // In your handleInteraction function, make sure it handles ALL custom IDs:
     async handleInteraction(interaction, client, db) {
         if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
         
         try {
-            // Handle Support Ticket Button
-            if (interaction.customId === 'open_support_ticket') {
-                await handleCreateSupportTicket(interaction, client, db);
+            console.log(`[Ticket] Interaction received: ${interaction.customId}`);
+            
+            // Handle Support Ticket Select Menu
+            if (interaction.customId === 'support_reason_select') {
+                await handleSupportReasonSelect(interaction, client, db);
             }
             
             // Handle Bug Report Button
@@ -89,13 +92,13 @@ module.exports = {
                 await handleCloseTicket(interaction, client, db);
             }
             
-            // Handle Support Reason Select Menu
-            else if (interaction.customId === 'support_reason_select') {
-                await handleSupportReasonSelect(interaction, client, db);
+            // If none of the above, log it
+            else {
+                console.log(`[Ticket] Unknown interaction: ${interaction.customId}`);
             }
             
         } catch (error) {
-            console.error('Ticket interaction error:', error);
+            console.error('[Ticket] Interaction error:', error);
             
             try {
                 if (interaction.deferred || interaction.replied) {
@@ -110,7 +113,7 @@ module.exports = {
                     });
                 }
             } catch (e) {
-                console.error('Failed to send error message:', e);
+                console.error('[Ticket] Failed to send error message:', e);
             }
         }
     }
