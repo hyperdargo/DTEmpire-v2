@@ -1,6 +1,5 @@
 // commands/info/servers.js
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, userMention, channelMention } = require('discord.js');
-const ms = require('ms');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 module.exports = {
     name: 'servers',
@@ -15,7 +14,7 @@ module.exports = {
             
             // Pagination
             const page = parseInt(args[0]) || 1;
-            const perPage = 10;
+            const perPage = 5; // Reduced from 10 to prevent field overflow
             const totalPages = Math.ceil(totalGuilds / perPage);
             
             if (page < 1 || page > totalPages) {
@@ -34,8 +33,7 @@ module.exports = {
                 .setFooter({ text: `Use ${client.botInfo.prefix}servers [page] to navigate` })
                 .setTimestamp();
             
-            // Add server list
-            let serverList = '';
+            // Add server information in multiple fields
             for (let i = 0; i < pageGuilds.length; i++) {
                 const guild = pageGuilds[i];
                 const owner = await guild.fetchOwner().catch(() => ({ user: { tag: 'Unknown' } }));
@@ -44,21 +42,34 @@ module.exports = {
                 const botMember = guild.members.cache.get(client.user.id);
                 const joinedDate = botMember ? botMember.joinedAt : null;
                 
-                serverList += `**${startIndex + i + 1}.** **[${guild.name}](https://discord.com/channels/${guild.id})**\n`;
-                serverList += `   👑 **Owner:** ${owner.user.tag}\n`;
-                serverList += `   👥 **Members:** ${guild.memberCount}\n`;
-                serverList += `   🆔 **ID:** \`${guild.id}\`\n`;
+                // Create safe field value (max 1024 characters)
+                let fieldValue = `👑 **Owner:** ${owner.user.tag}\n`;
+                fieldValue += `👥 **Members:** ${guild.memberCount}\n`;
+                fieldValue += `🆔 **ID:** \`${guild.id}\`\n`;
                 if (joinedDate) {
-                    serverList += `   📅 **Bot joined:** <t:${Math.floor(joinedDate.getTime() / 1000)}:R>\n`;
+                    fieldValue += `📅 **Bot joined:** <t:${Math.floor(joinedDate.getTime() / 1000)}:R>`;
                 }
-                serverList += '\n';
+                
+                // Truncate if necessary (though with perPage=5 this shouldn't happen)
+                if (fieldValue.length > 1024) {
+                    fieldValue = fieldValue.substring(0, 1020) + '...';
+                }
+                
+                embed.addFields({
+                    name: `${startIndex + i + 1}. ${guild.name}`,
+                    value: fieldValue,
+                    inline: true
+                });
             }
             
-            embed.addFields({
-                name: '📋 Server List',
-                value: serverList || 'No servers found.',
-                inline: false
-            });
+            // Add empty field if odd number for better formatting
+            if (pageGuilds.length % 2 === 1) {
+                embed.addFields({
+                    name: '\u200b',
+                    value: '\u200b',
+                    inline: true
+                });
+            }
             
             // Add stats
             const totalMembers = guilds.reduce((acc, guild) => acc + guild.memberCount, 0);
@@ -68,7 +79,7 @@ module.exports = {
                 {
                     name: '📊 Statistics',
                     value: `**Total Servers:** ${totalGuilds}\n**Total Members:** ${totalMembers}\n**Avg. per Server:** ${avgMembers}`,
-                    inline: true
+                    inline: false
                 }
             );
             
