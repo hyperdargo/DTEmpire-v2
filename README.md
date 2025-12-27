@@ -1,395 +1,234 @@
-![DTEmpire Banner](https://i.imgur.com/ogq7SKi.png)
+<p align="center">
+  <img src="https://i.imgur.com/exDGDGc.png" alt="DTEmpire Banner" />
+</p>
 
-# DTEmpire AI Chat Bot
+<h1 align="center">🤖 DTEmpire v2</h1>
 
-[![Discord.js](https://img.shields.io/badge/discord.js-v14-blue?logo=discord)](https://discord.js.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-green?logo=node.js)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/license-MIT-brightgreen)](LICENSE)
-[![GitHub](https://img.shields.io/badge/GitHub-hyperdargo/DTEmpire--Ai--Chat--Bot-blue?logo=github)](https://github.com/hyperdargo/DTEmpire-Ai-Chat-Bot)
+<p align="center">
+  A powerful, all-in-one Discord bot featuring AI tools, moderation, music, economy, utilities, and more — built for modern Discord servers.
+</p>
 
-A fast, feature-rich Discord bot with AI capabilities, Minecraft integration, and per-user memory. Built with Node.js and Express.
+<p align="center">
+  <a href="https://dsc.gg/dtempirev2">
+    <img src="https://img.shields.io/badge/Invite-DTEmpire-blue?style=for-the-badge&logo=discord" />
+  </a>
+  <a href="https://discord.gg/eVuKw3VrvX">
+    <img src="https://img.shields.io/badge/Support-Server-purple?style=for-the-badge&logo=discord" />
+  </a>
+</p>
 
-**[➕ Add Bot to Discord](https://discord.com/oauth2/authorize?client_id=1454372361485684870)**
+---
 
-## Features
+## 📌 Overview
 
-✨ **AI Responses**
-- Multiple AI models (DTEmpire, DeepSeek, Claude, Grok, Mistral, Gemini, OpenAI)
-- Fast parallel model selection
-- Per-user memory storage
-- Identity overrides (name, creator, date)
+**DTEmpire** is a feature-rich Discord bot designed to cover everything a normal server needs — from **AI integration** and **music playback** to **moderation**, **economy**, **tickets**, and **automation**.
 
-🎮 **Minecraft Integration**
-- DiscordSRV webhook support
-- Minecraft chat AI triggers (`ai <message>`, `bot <message>`)
-- Automatic message extraction from Minecraft chat
+- Prefix: `^`
+- Version: **2.6.9**
+- Total Commands: **39**
+- Categories: **12**
+- Built with **Discord.js v14**
 
-💬 **Discord Features**
-- Prefix commands (`?help`, `?ai`, `?models`, etc.)
-- Slash commands (`/help`, `/ai`, `/models`)
-- Configurable AI channels
-- Model selection per guild
-- Beautiful embeds and buttons
-- Typing indicators
+---
 
-⚙️ **Flexible Configuration**
-- Configurable Message Content intent
-- Environment-based settings
-- Per-guild model preferences
-- Easy setup commands
+## ✨ Key Features
 
-## Requirements
+- 🤖 **AI Chat, Image, Video & TTS**
+- 🛡️ **Advanced Moderation & Logging**
+- 💰 **Economy with Jobs, Properties & Lottery**
+- 🎵 **High-Quality Music System**
+- 🎫 **Complete Ticket System**
+- 📊 **Server Statistics & Utilities**
+- ⚙️ **Auto Rooms, YouTube Alerts & Automation**
 
-- Node.js 18+
-- npm or yarn
-- Discord bot token
-- AI API access (for model endpoints)
+---
 
-## Installation
+## 📂 Command Categories
 
-1. **Clone the repository**
+### 🤖 AI (4)
+- `aichat` – Chat with AI using different models  
+- `imagegen` – Generate AI images  
+- `tts` – Text to speech  
+- `videogen` – AI video generation  
+
+### 🛠️ Admin (2)
+- `setchannel` – Configure bot channels  
+- `setlogs` – Auto-create server log channels  
+
+### ⚙️ Config (1)
+- `setguildjoin` – Log servers the bot joins  
+
+### 💰 Economy (1)
+- `economy` – Jobs, properties, lottery & banking  
+
+### 🎉 Fun (3)
+- `giveaway` – Create & manage giveaways  
+- `snipe` – View deleted/edited messages  
+- `sticky` – Sticky messages in channels  
+
+### ℹ️ Info (2)
+- `getguilds` – View multiple server info  
+- `servers` – List all servers bot is in  
+
+### 📊 Leveling (1)
+- `level` – Check XP, rank & progress  
+
+### 🛡️ Moderation (3)
+- `cleanup` – Bulk message cleanup  
+- `mod` – Kick, ban, mute & more  
+- `welcome` – Welcome & leave messages  
+
+### 👑 Owner (1)
+- `globalbadwords` – Global word filter  
+
+### 🎫 Ticket (1)
+- `ticket` – Full support ticket system  
+
+### 🧰 Utility (11)
+- `announce` – Create professional announcements  
+- `autoroom` – Auto voice channel creation  
+- `dm` – DM users  
+- `help` – Show command list  
+- `info` – Bot info  
+- `invite` – Bot invite & support links  
+- `restart` – Restart bot (Owner only)  
+- `serverstats` – Detailed server stats  
+- `uptime` – Bot uptime & resources  
+- `whois` – User information  
+- `youtube` – YouTube notifications  
+
+### 🎵 Music (9)
+- `music` – Music help  
+- `nowplaying` – Current song info  
+- `pause` / `resume`  
+- `play` – YouTube, Spotify & more  
+- `queue` – View queue  
+- `skip` / `stop`  
+- `volume` – Adjust volume  
+
+---
+
+## 🖥️ Built-In Help Menu
+
+```text
+🤖 DTEmpire Help Menu
+Prefix: ^
+Version: 2.6.9
+Total Commands: 39
+
+📁 AI (4)
+aichat, imagegen, tts, videogen
+
+📁 Admin (2)
+setchannel, setlogs
+
+📁 Config (1)
+setguildjoin
+
+📁 Economy (1)
+economy
+
+📁 Fun (3)
+giveaway, snipe, sticky
+
+📁 Info (2)
+getguilds, servers
+
+📁 Leveling (1)
+level
+
+📁 Moderation (3)
+cleanup, mod, welcome
+
+📁 Owner (1)
+globalbadwords
+
+📁 Ticket (1)
+ticket
+
+📁 Utility (11)
+announce, autoroom, dm, help, info, invite,
+restart, serverstats, uptime, whois, youtube
+
+📁 Music (9)
+music, nowplaying, pause, play, queue,
+resume, skip, stop, volume
+````
+
+---
+
+## 🚀 Quick Setup (Self-Hosting)
+
+### 1️⃣ Clone the Repository
+
 ```bash
-git clone https://github.com/hyperdargo/DTEmpire-Ai-Chat-Bot.git
-cd DTEmpire-Ai-Chat-Bot
+git clone https://github.com/hyperdargo/DTEmpire-v2.git
+cd DTEmpire-v2
 ```
 
-2. **Install dependencies**
+### 2️⃣ Install Dependencies
+
 ```bash
 npm install
 ```
 
-3. **Create `.env` file**
-```env
-# Discord Bot
-DISCORD_TOKEN=your_discord_bot_token
-BOT_PREFIX=?
-BOT_STATUS_TEXT=^help | v2.6.9   # shown as activity (default builds from prefix and version)
-BOT_STATUS_TYPE=PLAYING          # PLAYING | LISTENING | WATCHING | COMPETING | STREAMING
-BOT_STATUS_STATE=online          # online | idle | dnd | invisible
-BOT_VERSION=v2.6.9               # optional; if unset, uses package.json version
+### 3️⃣ Configure Environment Variables
 
-# API Configuration
-API_URL=http://localhost:3000
-HOST=0.0.0.0
-PORT=3000
-
-# Bot Settings
-BOT_PREFIX=?
-DEFAULT_MODEL=nova-micro
-ALLOW_MESSAGE_CONTENT_INTENT=true
-
-# Optional
-GUILD_ID=your_guild_id
-UI_URL=http://localhost:3000/ui
-```
-
-4. **Run the bot**
-```bash
-npm start
-```
-
-The API will start on `http://localhost:3000` and the Discord bot will connect automatically.
-
-## Setup Commands
-
-### Set AI Channel (Auto-reply)
-Makes a channel auto-reply to all messages with AI responses.
-
-```
-?setchannel
-```
-
-Users can also set multiple AI channels. Regular Discord users will get auto-replies, and Minecraft chat will respond to `ai <message>` commands.
-
-### Set Minecraft Channel
-Enables AI triggers for Minecraft chat via DiscordSRV.
-
-```
-?setmcchannel
-```
-
-Players in Minecraft can then use:
-- `ai <message>` - Get AI response
-- `bot <message>` - Alternative command
-- `assistant <message>` - Another alternative
-
-### Change Model (Admin Only)
-```
-?models <ModelName>
-```
-
-**Available Models:**
-- DTEmpire (nova-micro) - Default, fastest
-- DeepSeek
-- Claude
-- Grok
-- Mistral
-- Gemini
-- OpenAI
-
-## Commands
-
-### Prefix Commands
-| Command | Usage | Description |
-|---------|-------|-------------|
-| `?help` | `?help` | Show help embed |
-| `?ping` | `?ping [ai] [model]` | Ping API + uptime; optional AI check |
-| `?ai` | `?ai <message>` | Talk to AI |
-| `?models` | `?models <model>` | Set model (admin) |
-| `?setchannel` | `?setchannel` | Set AI channel (admin) |
-| `?setmcchannel` | `?setmcchannel` | Set Minecraft channel (admin) |
-
-### Slash Commands
-| Command | Usage | Description |
-|---------|-------|-------------|
-| `/help` | `/help` | Show help (ephemeral) |
-| `/ping` | `/ping ai:<bool> model:<choice>` | Ping API + uptime; optional AI check |
-| `/ai` | `/ai prompt:<message>` | Talk to AI |
-| `/models` | `/models model:<choice>` | Set model (admin, ephemeral) |
-
-### Buttons
-- **Model Selection**: Click DTEmpire, DeepSeek, Claude, Mistral, Gemini buttons to change model
-- **Web UI**: Open the web interface to chat
-
-## Configuration
-
-### Environment Variables
+Create a `.env` file:
 
 ```env
-# Required
-DISCORD_TOKEN=                    # Discord bot token
-
-# API
-API_URL=http://localhost:3000     # API URL for bot requests
-HOST=0.0.0.0                      # API server host
-PORT=3000                         # API server port
-
-# Bot
-BOT_PREFIX=?                      # Prefix for commands (?, !, etc.)
-DEFAULT_MODEL=nova-micro          # Default AI model
-ALLOW_MESSAGE_CONTENT_INTENT=true # Enable Message Content intent (required for Minecraft)
-BOT_MODEL=                        # Force specific model (optional)
-
-# Optional
-GUILD_ID=                         # Restrict commands to guild (optional)
-UI_URL=                           # Web UI URL (auto-detected if not set)
-AI_CHANNEL_IDS=                   # Comma-separated channel IDs for auto-reply (optional)
+DISCORD_TOKEN=your_bot_token
+SPOTIFY_CLIENT_ID=your_spotify_id
+SPOTIFY_CLIENT_SECRET=your_spotify_secret
+OPENAI_API_KEY=your_openai_key
+DATABASE_URL=your_database_url
 ```
 
-## File Structure
+### 4️⃣ Start the Bot
 
-```
-.
-├── index.js              # Main entry point
-├── package.json          # Dependencies
-├── .env                  # Environment variables
-├── data/
-│   ├── bot.json         # Guild settings (auto-created)
-│   └── users.json       # User memory (auto-created)
-├── public/
-│   └── index.html       # Web UI
-└── src/
-    ├── server.js        # Express API
-    ├── discordBot.js    # Discord bot
-    ├── aiClient.js      # AI API client
-    ├── botConfig.js     # Config manager
-    ├── memoryStore.js   # User memory
-    └── config/
-        └── models.js    # Model configuration
-```
-
-## API Endpoints
-
-### AI Smart (Main Endpoint)
-```
-POST /api/ai-smart
-GET /api/ai-smart?prompt=...&userId=...&model=...
-
-Body: { prompt, userId, model (optional) }
-Response: { status, text, model, model_name, elapsedMs }
-```
-
-### AI Identity (Personality)
-```
-GET /api/ai-identity?prompt=...&userId=...
-
-Response: Fixed answers for name/maker/date, else AI response
-```
-
-### Health Check
-```
-GET /api/health
-Response: { status: "ok", listening: true, host, port, uptimeMs, date }
-```
-
-### Ping
-```
-GET /api/ping?msg=hello&ts=<client_ms>&ai=1&model=<optional>
-Response:
-{
-  status: "pong",
-  server: "listening",
-  host, port,
-  uptimeMs,
-  date,
-  echo: "hello",
-  echoLatencyMs: <ms>,
-  external: { ok: true, status, elapsedMs } | { ok: false, error },
-  serverUrl: "https://ai.ankitgupta.com.np",
-  ai?: { ok: true, model, model_name, elapsedMs, text } | { ok: false, error }
-}
-
-- `msg`: optional echo string
-- `ts`: optional client timestamp in ms to compute round-trip latency
-- `ai`: set to `1` or `true` to perform a lightweight AI check
-- `model`: optional model hint for AI check
-Ping also performs a GET to https://gen.pollinations.ai/v1/models to verify upstream API availability.
-```
-
-### User Memory
-```
-GET /api/user?userId=...
-Response: { status, user { messages, ... } }
-```
-
-### Help
-```
-GET /help
-Response (JSON): { status: "success", server: "listening", endpoints, examples }
-Browser requests receive a simple HTML help page.
-```
-
-### Status
-```
-GET /api/status
-Response: { status: "listening", host, port, uptimeMs, date }
-```
-
-### Web UI
-```
-GET /ui
-```
-
-## DiscordSRV Integration
-
-The bot automatically detects Minecraft chat messages from DiscordSRV webhooks using patterns:
-- `[Member] PlayerName » message`
-- `[Member] PlayerName > message`
-- `[Member] PlayerName: message`
-
-When a message matches `ai <text>` or `bot <text>`, it triggers the AI to respond.
-
-## Features in Action
-
-### Discord Auto-Reply
-1. Set an AI channel with `?setchannel`
-2. Type any message → Bot replies automatically
-3. Click buttons to change models
-4. Each guild can have different model preferences
-
-### Minecraft Chat
-1. Set Minecraft channel with `?setmcchannel`
-2. Player types in Minecraft: `ai hello`
-3. Response appears in Discord and Minecraft chat
-4. No player name prefix in response
-
-### Model Selection
-- Per-guild model preferences
-- Automatic fallback to default
-- All models aliased for easy selection
-
-## Development
-
-### Run in Development
 ```bash
 npm start
+# or
+npm run dev
 ```
 
-### Debug Mode
-Set `DEBUG=*` to see detailed logs:
-```bash
-DEBUG=* npm start
-```
+---
 
-### Testing
-```bash
-# Test AI endpoint
-curl "http://localhost:3000/api/ai-smart?prompt=hello&userId=test"
+## 🔧 Requirements
 
-# Test health
-curl http://localhost:3000/api/health
-```
+* **Node.js** v16.9.0+
+* **Discord.js** v14+
+* **Administrator permission** recommended
+* **Python** (optional, for AI features)
 
-## Troubleshooting
+---
 
-### Bot not responding to Minecraft chat
-- Ensure `ALLOW_MESSAGE_CONTENT_INTENT=true` in `.env`
-- Verify Minecraft channel is set with `?setmcchannel`
-- Check bot has access to the channel
-- Restart the bot after changes
+## 🤝 Support & Links
 
-### "Interaction failed" errors
-- Ensure Message Content intent is enabled in Discord Developer Portal
-- Check bot has proper permissions (Send Messages, Embed Links, etc.)
+* 💬 **Discord Support**: [https://discord.gg/eVuKw3VrvX](https://discord.gg/eVuKw3VrvX)
+* 📚 **Documentation**: [https://docs.ankitgupta.com.np/](https://docs.ankitgupta.com.np/)
+* 🐛 **Issues & Requests**: GitHub Issues
 
-### AI models not responding
-- Check API_URL is correct and accessible
-- Verify model endpoints are working
-- Check console for error logs
-- Ensure network connectivity
+---
 
-### Commands not working
-- Verify prefix matches BOT_PREFIX in .env
-- For slash commands, wait for them to register (may take ~1 hour globally)
-- Restart bot if slash commands don't appear
+## 📄 License
 
-## Permissions Required
+Licensed under the **MIT License**.
+See the [LICENSE](LICENSE) file for details.
 
-The bot needs these Discord permissions:
-- `Send Messages`
-- `Send Messages in Threads`
-- `Embed Links`
-- `Read Message History`
-- `Add Reactions` (for buttons)
-
-## Deploy on Pterodactyl
-
-1. Create a new Node.js server
-2. Set startup command: `node index.js`
-3. Configure environment variables (see Configuration section)
-4. Ensure port is accessible (default 3000)
-5. Start the server
-
-## Support
-
-For issues or questions:
-1. Check the Troubleshooting section
-2. Review console logs for errors
-3. Verify all environment variables are set
-4. Make sure API is running and accessible
-
-## License
-
-This project is licensed under the MIT License.
-
-## Credits
-
-- Built with [discord.js](https://discord.js.org/)
-- AI powered by Pollinations.ai
-- DiscordSRV integration for Minecraft
+---
 
 ## 👤 Author
 
 **DargoTamber**
 
-- GitHub: [https://github.com/hyperdargo](https://github.com/hyperdargo)
-- Discord: DargoTamber
-- Website: [https://ankitgupta.com.np](https://ankitgupta.com.np)
+* GitHub: [https://github.com/hyperdargo](https://github.com/hyperdargo)
+* Discord: DargoTamber
+* Website: [https://ankitgupta.com.np](https://ankitgupta.com.np)
 
 ---
 
 <p align="center">
-  DTEmpire Ai Chat Bot • Built with ❤️ for the Discord community
+  DTEmpire v2.6.9 • Built with ❤️ for the Discord community
 </p>
-
 
