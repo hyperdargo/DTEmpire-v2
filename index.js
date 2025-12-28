@@ -746,6 +746,64 @@ client.on('messageCreate', async (message) => {
         await stickyHandler.handleMessageCreate(message, client, client.db);
     }
     
+    // ========== MUSIC CHANNEL AUTOCOMMANDS (no prefix) ==========
+    try {
+        // Ensure DB is initialized (safety)
+        if (!client.db) {
+            const Database = require('./utils/database');
+            const dbInstance = new Database();
+            client.db = await dbInstance.initialize();
+        }
+
+        const cfg = await client.db.getGuildConfig(message.guild.id);
+        if (cfg && cfg.music_channel && message.channel.id === cfg.music_channel) {
+            const raw = message.content.trim();
+            const tokens = raw.split(/\s+/);
+            const first = (tokens[0] || '').toLowerCase();
+            const restArgs = tokens.slice(1);
+
+            const commandMap = {
+                play: 'play', p: 'play',
+                pause: 'pause',
+                resume: 'resume',
+                skip: 'skip', s: 'skip',
+                stop: 'stop', st: 'stop',
+                queue: 'queue', q: 'queue',
+                nowplaying: 'nowplaying', np: 'nowplaying', now: 'nowplaying', current: 'nowplaying',
+                volume: 'volume', vol: 'volume'
+            };
+
+            const target = commandMap[first];
+            if (target) {
+                const cmd = client.commands.get(target) ||
+                            client.commands.get(client.aliases.get(target));
+                if (cmd) {
+                    // Basic arg validation for specific commands
+                    if (target === 'play' && restArgs.length === 0) {
+                        await message.reply('❌ Please provide a song name or URL!');
+                        return;
+                    }
+                    if (target === 'volume') {
+                        const val = restArgs[0];
+                        const num = Number(val);
+                        if (!val || Number.isNaN(num)) {
+                            await message.reply('❌ Please provide a volume number (e.g., `volume 50`).');
+                            return;
+                        }
+                    }
+                    try {
+                        await cmd.execute(message, restArgs, client, client.db);
+                        return; // handled; skip prefix command flow
+                    } catch (err) {
+                        console.error(`Autoplay handler error (${target}):`, err);
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Music channel autocommands error:', err);
+    }
+
     // ========== COMMAND HANDLER ==========
     const prefix = client.botInfo.prefix;
     if (!message.content.startsWith(prefix)) return;
