@@ -4,6 +4,7 @@ const { Riffy } = require('riffy');
 const { Spotify } = require('riffy-spotify');
 const path = require('path');
 const logger = require('./logger');
+const https = require('https');
 
 class PlayerManager {
     constructor(client) {
@@ -15,6 +16,7 @@ class PlayerManager {
         this.progressIntervals = new Map(); // Store intervals for each guild
         this.nowPlayingMessages = new Map(); // Store last "now playing" message for updates
         this.lastProgressUpdate = new Map(); // Track last progress update time
+        this.imageCardInUse = new Map(); // Whether current NP uses attachment-based image card
         
         this.init();
     }
@@ -272,7 +274,8 @@ class PlayerManager {
                 if (message) {
                     try {
                         // Edit the message with updated progress
-                        const embed = this.createNowPlayingEmbed(track, player);
+                        const useAttachment = this.imageCardInUse.get(guildId) === true;
+                        const embed = this.createNowPlayingEmbed(track, player, useAttachment);
                         
                         // Fetch the message to edit it
                         const channel = await this.client.channels.fetch(player.textChannel).catch(() => null);
@@ -315,7 +318,8 @@ class PlayerManager {
         
         if (player && player.queue.current && message) {
             try {
-                const embed = this.createNowPlayingEmbed(player.queue.current, player);
+                const useAttachment = this.imageCardInUse.get(guildId) === true;
+                const embed = this.createNowPlayingEmbed(player.queue.current, player, useAttachment);
                 const channel = await this.client.channels.fetch(player.textChannel).catch(() => null);
                 
                 if (channel) {
@@ -335,21 +339,38 @@ class PlayerManager {
         return false;
     }
 
-    // 🎯 UPDATED: Now Playing Message with Progress
+    // 🎯 UPDATED: Now Playing Message with Progress + Image Card
     async sendNowPlayingMessage(player, track) {
         try {
             const channel = this.client.channels.cache.get(player.textChannel);
             if (!channel) return null;
             
-            const embed = this.createNowPlayingEmbed(track, player);
+            // Try generating an image card using the external API (YouTube links only)
+            let useAttachmentImage = false;
+            let filesPayload = undefined;
+            try {
+                const imageCard = await this.generateImageCard(track.info);
+                if (imageCard && imageCard.buffer) {
+                    useAttachmentImage = true;
+                    filesPayload = [{ attachment: imageCard.buffer, name: 'music-card.png' }];
+                }
+            } catch (icErr) {
+                console.log('Image card generation failed:', icErr?.message || icErr);
+            }
+
+            const embed = this.createNowPlayingEmbed(track, player, useAttachmentImage);
             
             const message = await channel.send({ 
                 embeds: [embed],
-                components: [this.createMusicButtons()] 
+                components: [this.createMusicButtons()],
+                ...(filesPayload ? { files: filesPayload } : {})
             }).catch(error => {
                 console.error('Error sending now playing message:', error);
                 return null;
             });
+
+            // Track whether attachment image was used for future edits
+            this.imageCardInUse.set(player.guildId, useAttachmentImage === true);
             
             return message;
         } catch (error) {
@@ -366,7 +387,7 @@ class PlayerManager {
             const embed = new EmbedBuilder()
                 .setColor('#0061ff')
                 .setTitle('🎵 Queue Ended')
-                .setDescription('The queue has ended. Add more songs with `.play`!')
+                .setDescription('The queue has ended. Add more songs with `^play`!')
                 .setTimestamp();
             
             channel.send({ embeds: [embed] }).catch(console.error);
@@ -402,7 +423,7 @@ class PlayerManager {
     }
 
     // 🎯 UPDATED: Create Now Playing Embed with Progress Bar
-    createNowPlayingEmbed(track, player) {
+    createNowPlayingEmbed(track, player, useAttachmentImage = false) {
         // Get current position (default to 0 if not available)
         const currentPosition = player.position || 0;
         const totalDuration = track.info.length || 1;
@@ -438,7 +459,7 @@ class PlayerManager {
                 ...(queuePos ? [{ name: '📚 Queue Position', value: typeof queuePos === 'number' ? `#${queuePos}` : queuePos, inline: true }] : []),
                 { name: '📊 Progress', value: progressBar, inline: false }
             )
-            .setImage(track.info.thumbnail || null)
+            .setImage(useAttachmentImage ? 'attachment://music-card.png' : (track.info.thumbnail || null))
             .setFooter({ 
                 text: `Volume: ${vol}% | Loop: ${loopPretty} | Position: ${this.formatTime(currentPosition)} / ${this.formatTime(totalDuration)}` 
             })
@@ -540,6 +561,62 @@ class PlayerManager {
     getQueueDuration(player) {
         const queue = player.queue;
         return queue.reduce((total, track) => total + (track.info.length || 0), 0);
+    }
+
+    // 🎨 NEW: Generate image card for YouTube tracks using external API
+    generateImageCard(trackInfo) {
+        return new Promise((resolve) => {
+            try {
+                const uri = trackInfo?.uri || '';
+                if (!uri || (!uri.includes('youtube.com') && !uri.includes('youtu.be'))) {
+                    // Only generate for YouTube sources
+                    return resolve(null);
+                }
+
+                const title = encodeURIComponent(trackInfo.title || 'Unknown Title');
+                const artist = encodeURIComponent(trackInfo.author || 'Unknown Artist');
+                const duration = encodeURIComponent(this.formatTime(trackInfo.length || 0));
+                const thumbnail = encodeURIComponent(uri);
+
+                const imageCardUrl = `https://imggen-api.ankitgupta.com.np/api/image-card?title=${title}&artist=${artist}&thumbnail=${thumbnail}&duration=${duration}&returnType=image`;
+
+                const req = https.get(imageCardUrl, {
+                    headers: { 'User-Agent': 'DTEmpire-Music-Bot/1.0' }
+                }, (res) => {
+                    const statusOK = res.statusCode && res.statusCode >= 200 && res.statusCode < 300;
+                    if (!statusOK) {
+                        res.resume();
+                        return resolve(null);
+                    }
+
+                    const contentType = res.headers['content-type'] || '';
+                    if (!contentType.startsWith('image/')) {
+                        res.resume();
+                        return resolve(null);
+                    }
+
+                    const chunks = [];
+                    res.on('data', (d) => chunks.push(d));
+                    res.on('end', () => {
+                        try {
+                            const buffer = Buffer.concat(chunks);
+                            return resolve({ buffer, url: imageCardUrl });
+                        } catch (e) {
+                            return resolve(null);
+                        }
+                    });
+                });
+
+                req.setTimeout(10000, () => {
+                    try { req.destroy(); } catch {}
+                    return resolve(null);
+                });
+
+                req.on('error', () => resolve(null));
+            } catch (error) {
+                return resolve(null);
+            }
+        });
     }
 
     // Cleanup
