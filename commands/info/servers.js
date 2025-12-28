@@ -9,6 +9,12 @@ module.exports = {
     
     async execute(message, args, client, db) {
         try {
+            // Check if the user is the bot owner
+            const ownerId = client.botInfo.ownerId; // Make sure ownerId is set in your client config
+            if (message.author.id !== ownerId) {
+                return message.reply('❌ This command is only available to the bot owner.');
+            }
+            
             const guilds = client.guilds.cache;
             const totalGuilds = guilds.size;
             
@@ -150,6 +156,14 @@ module.exports = {
             });
             
             collector.on('collect', async (interaction) => {
+                // Also check owner for button interactions
+                if (interaction.user.id !== ownerId) {
+                    return interaction.reply({ 
+                        content: '❌ Only the bot owner can use these buttons.',
+                        ephemeral: true 
+                    });
+                }
+                
                 if (!interaction.customId.startsWith('servers_') && interaction.customId !== 'refresh_servers') return;
                 
                 if (interaction.customId === 'refresh_servers') {
