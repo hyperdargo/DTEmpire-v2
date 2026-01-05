@@ -1429,10 +1429,11 @@ async function footballBet(message, args, client, db) {
     }
     
     // Match simulation
-    const teams = ['red', 'blue'];
-    const winningTeam = teams[Math.floor(Math.random() * 2)];
     const redScore = Math.floor(Math.random() * 5);
     const blueScore = Math.floor(Math.random() * 5);
+    
+    // Determine winning team based on score
+    const winningTeam = redScore > blueScore ? 'red' : blueScore > redScore ? 'blue' : (Math.random() < 0.5 ? 'red' : 'blue');
     
     const won = teamChoice === winningTeam;
     
