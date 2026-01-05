@@ -1642,6 +1642,9 @@ async function gambleMoney(message, args, client, db) {
 
 // ========== EXPORTS FOR BUTTON HANDLERS ==========
 module.exports.workJob = workJob;
+module.exports.showJobs = showJobs;
 module.exports.showProperties = showProperties;
 module.exports.lotteryInfo = lotteryInfo;
 module.exports.bankManagement = bankManagement;
+module.exports.showLeaderboard = showLeaderboard;
+module.exports.showProfile = showProfile;
