@@ -24,8 +24,8 @@
 **DTEmpire** is a feature-rich Discord bot designed to cover everything a normal server needs — from **AI integration** and **music playback** to **moderation**, **economy**, **tickets**, and **automation**.
 
 - Prefix: `^`
-- Version: **2.6.9**
-- Total Commands: **39**
+- Version: **2.7.1**
+- Total Commands: **45**
 - Categories: **12**
 - Built with **Discord.js v14**
 
@@ -35,15 +35,77 @@
 
 - 🤖 **AI Chat, Image, Video & TTS**
 - 🛡️ **Advanced Moderation & Logging**
-- 💰 **Economy with Jobs, Properties & Lottery**
-- 🎵 **High-Quality Music System**
+- 💰 **Full Economy System with Jobs, Properties, Lottery, Gambling & Trading**
+- 🎵 **High-Quality Music System with DJ Mode & Smart Search**
 - 🎫 **Complete Ticket System**
-- 📊 **Server Statistics & Utilities**
+- 📊 **Polls, Suggestions & Birthday Reminders**
+- 📈 **Server Statistics & Leveling System**
 - ⚙️ **Auto Rooms, YouTube Alerts & Automation**
 
 ---
 
-## 🆕 What's New — December 28, 2025
+## 🆕 What's New — January 2026 (v2.7.0)
+
+### 💰 **Enhanced Economy System**
+- **Steal Command** (`^eco steal @user`) — Attempt to steal from other users (50% success rate, 1-hour cooldown)
+  - Success: Steal 10-30% of target's wallet
+  - Failure: Pay double the steal amount as penalty
+- **Pay Command** (`^eco pay @user <amount>`) — Send money directly to other users
+- **Gambling Events:**
+  - `^eco race <amount> <horse>` — Horse racing with 3x multiplier (bet on horses 1-5)
+  - `^eco football <amount> <team>` — Football betting with 2x multiplier (red or blue team)
+  - `^eco gamble <amount>` — Classic gambling with 45% win chance, 2x multiplier
+  - All gambling events have a minimum bet of $100
+
+### 📊 **Polls System** (`^polls`)
+- Create interactive polls with up to 10 options
+- Real-time voting with upvote/downvote buttons
+- Automatic vote counting with progress bars
+- Set custom duration (1 minute to 1 week)
+- Visual results with winner announcement
+- Commands:
+  - `^polls create "Question?" "Option 1" "Option 2" [duration]`
+  - `^polls end <poll_id>` — Manually end active polls
+  - `^polls results <poll_id>` — View current or final results
+  - `^polls list` — See all server polls
+
+### 💡 **Suggestion System** (`^suggest`)
+- Submit suggestions from any channel
+- Interactive voting system with ⬆️ upvote and ⬇️ downvote buttons
+- Admin review actions: Approve ✅, Deny ❌, or Consider 🤔
+- Real-time vote tracking with percentages
+- DM notifications for suggestion status updates
+- Commands:
+  - `^suggest <your suggestion>` — Submit a suggestion
+  - `^suggest setchannel #channel` — Set suggestion channel (Admin)
+
+### 🎂 **Birthday System** (`^birthday`)
+- Automatic birthday announcements at midnight
+- Beautiful birthday embeds with GIF and @everyone ping
+- Birthday reminders and countdown tracking
+- Commands:
+  - `^birthday set <MM/DD>` — Set your birthday
+  - `^birthday list` — View all server birthdays
+  - `^birthday upcoming` — See birthdays in next 30 days
+  - `^birthday check [@user]` — Check someone's birthday
+  - `^birthday setchannel #channel` — Set announcement channel (Admin)
+
+### 👥 **Role Management System**
+- **Add Role Command** (`^addrole @role(s) @user(s)`) — Add single or multiple roles to users
+  - Support for bulk role assignments
+  - Add multiple roles to multiple users simultaneously
+  - Permission and hierarchy validation
+- **Remove Role Command** (`^removerole @role(s) @user(s)`) — Remove roles from users
+- **Reaction Roles** (`^reactionrole`) — Self-assignable roles with buttons
+  - Create interactive role panels with custom titles and descriptions
+  - Button-based role assignment (up to 25 roles per panel)
+  - Users can toggle roles by clicking buttons
+  - Custom emoji for each role
+  - Commands:
+    - `^reactionrole create "Title" "Description" @role1:emoji1 @role2:emoji2`
+    - `^reactionrole add/remove/list/delete`
+
+### 🎵 **Previous Music Updates**
 
 - **No-Prefix Music Channel:** Set a dedicated text channel and type natural commands without the `^` prefix. Configure with `^setmusicchannel #music` then use `play never gonna give you up`, `pause`, `resume`, `skip`, `stop`, `queue`, `nowplaying`, `volume 70`, `shuffle`, `loop`, or `smartsearch` right in that channel.
 - **AI Music Interpreter:** Type natural requests like "play some chill lofi" or "queue edm party mix" — the bot interprets intent, offers top results via Smart Search, and can recommend tracks.
@@ -77,7 +139,15 @@ Tip: Use `^music` or `^help music` for detailed guidance on music features, Smar
 - `setguildjoin` – Log servers the bot joins  
 
 ### 💰 Economy (1)
-- `economy` – Jobs, properties, lottery & banking  
+- `economy` – Complete economy system:
+  - **Jobs:** Work, apply, level up (5 job tiers)
+  - **Properties:** Buy/sell houses, shops, lands, businesses
+  - **Banking:** Deposit, withdraw, collect daily rent
+  - **Trading:** Pay users, steal from others (50% success)
+  - **Gambling:** Race, football betting, casino games
+  - **Lottery:** Buy tickets, win jackpots
+  - **Leaderboard:** Top richest players
+  - **Profile:** View economy stats & transactions  
 
 ### 🎉 Fun (3)
 - `giveaway` – Create & manage giveaways  
@@ -91,9 +161,11 @@ Tip: Use `^music` or `^help music` for detailed guidance on music features, Smar
 ### 📊 Leveling (1)
 - `level` – Check XP, rank & progress  
 
-### 🛡️ Moderation (3)
+### 🛡️ Moderation (5)
+- `addrole` – Add single or multiple roles to users
 - `cleanup` – Bulk message cleanup  
-- `mod` – Kick, ban, mute & more  
+- `mod` – Kick, ban, mute & more
+- `removerole` – Remove roles from users
 - `welcome` – Welcome & leave messages  
 
 ### 👑 Owner (1)
@@ -102,15 +174,19 @@ Tip: Use `^music` or `^help music` for detailed guidance on music features, Smar
 ### 🎫 Ticket (1)
 - `ticket` – Full support ticket system  
 
-### 🧰 Utility (11)
+### 🧰 Utility (15)
 - `announce` – Create professional announcements  
 - `autoroom` – Auto voice channel creation  
+- `birthday` – Birthday reminder system with auto-announcements
 - `dm` – DM users  
 - `help` – Show command list  
 - `info` – Bot info  
 - `invite` – Bot invite & support links  
+- `polls` – Create interactive polls with voting
+- `reactionrole` – Self-assignable roles with buttons
 - `restart` – Restart bot (Owner only)  
 - `serverstats` – Detailed server stats  
+- `suggest` – Suggestion system with voting & admin review
 - `uptime` – Bot uptime & resources  
 - `whois` – User information  
 - `youtube` – YouTube notifications  
@@ -131,8 +207,8 @@ Tip: Use `^music` or `^help music` for detailed guidance on music features, Smar
 ```text
 🤖 DTEmpire Help Menu
 Prefix: ^
-Version: 2.6.9
-Total Commands: 39
+Version: 2.7.1
+Total Commands: 45
 
 📁 AI (4)
 aichat, imagegen, tts, videogen
@@ -144,7 +220,9 @@ setchannel, setlogs
 setguildjoin
 
 📁 Economy (1)
-economy
+economy (work, jobs, properties, buy, sell, 
+lottery, bank, steal, pay, race, football, 
+gamble, leaderboard, profile)
 
 📁 Fun (3)
 giveaway, snipe, sticky
@@ -155,8 +233,8 @@ getguilds, servers
 📁 Leveling (1)
 level
 
-📁 Moderation (3)
-cleanup, mod, welcome
+📁 Moderation (5)
+addrole, cleanup, mod, removerole, welcome
 
 📁 Owner (1)
 globalbadwords
@@ -164,9 +242,10 @@ globalbadwords
 📁 Ticket (1)
 ticket
 
-📁 Utility (11)
-announce, autoroom, dm, help, info, invite,
-restart, serverstats, uptime, whois, youtube
+📁 Utility (15)
+announce, autoroom, birthday, dm, help, 
+info, invite, polls, reactionrole, restart, 
+serverstats, suggest, uptime, whois, youtube
 
 📁 Music (9)
 music, nowplaying, pause, play, queue,
@@ -221,6 +300,54 @@ npm run dev
 
 ---
 
+## 🤝 Contributing
+
+We welcome contributions from the community! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
+
+### 💡 How to Contribute
+
+1. **Fork the Repository**
+   ```bash
+   git clone https://github.com/hyperdargo/DTEmpire-v2.git
+   cd DTEmpire-v2
+   ```
+
+2. **Create a Branch**
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+3. **Make Your Changes**
+   - Write clean, documented code
+   - Test your changes thoroughly
+   - Follow existing code style
+
+4. **Submit a Pull Request**
+   - Push your changes to your fork
+   - Open a Pull Request with a clear description
+   - Your PR will be reviewed and merged if approved
+
+### 🎯 Contribution Guidelines
+
+- **Code Contributions:** All accepted code will be credited with your GitHub username
+- **Feature Suggestions:** Join our [Discord Server](https://discord.gg/eVuKw3VrvX) to suggest features
+- **Bug Reports:** Open an issue on GitHub with detailed information
+- **Documentation:** Help improve our docs and examples
+
+### 🏆 Contributors
+
+All contributors will be:
+- Credited in code with their username
+- Listed in our contributors section
+- Acknowledged in release notes
+
+**Special thanks to:**
+- **davidbarnett0587** - Polls System, Birthday System, Suggestion System
+
+*Your name could be here! Start contributing today.*
+
+---
+
 ## 🤝 Support & Links
 
 * 💬 **Discord Support**: [https://discord.gg/eVuKw3VrvX](https://discord.gg/eVuKw3VrvX)
@@ -247,6 +374,6 @@ See the [LICENSE](LICENSE) file for details.
 ---
 
 <p align="center">
-  DTEmpire v2.6.9 • Built with ❤️ for the Discord community
+  DTEmpire v2.7.1 • Built with ❤️ for the Discord community
 </p>
 

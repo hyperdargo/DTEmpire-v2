@@ -17,7 +17,9 @@ class Database {
             stickyMessages: {}, // Added for sticky messages
             tickets: {}, // Added for ticket system
             ticketSystems: {}, // Added for ticket system configurations
-            ticketLogs: {} // Added for ticket logs
+            ticketLogs: {}, // Added for ticket logs
+            reactionRoles: {}, // Added for reaction role system
+            birthdays: {} // Added for birthday system
         };
         this.dbPath = path.join(__dirname, '..', 'data', 'database.json');
     }
@@ -1403,6 +1405,88 @@ class Database {
         }
         
         return userTickets;
+    }
+
+    // ========== GUILD CONFIG SET METHOD ==========
+    async setGuildConfig(guildId, key, value) {
+        if (!this.data.guildConfigs[guildId]) {
+            this.data.guildConfigs[guildId] = await this.getGuildConfig(guildId);
+        }
+        
+        this.data.guildConfigs[guildId][key] = value;
+        this.save();
+        return this.data.guildConfigs[guildId];
+    }
+
+    // ========== REACTION ROLE METHODS ==========
+    async saveReactionRole(rrData) {
+        if (!this.data.reactionRoles) this.data.reactionRoles = {};
+        
+        this.data.reactionRoles[rrData.id] = rrData;
+        this.save();
+        return rrData;
+    }
+
+    async getReactionRole(messageId) {
+        if (!this.data.reactionRoles) return null;
+        return this.data.reactionRoles[messageId] || null;
+    }
+
+    async getReactionRolesByGuild(guildId) {
+        if (!this.data.reactionRoles) return [];
+        
+        return Object.values(this.data.reactionRoles).filter(rr => rr.guildId === guildId);
+    }
+
+    async deleteReactionRole(messageId) {
+        if (!this.data.reactionRoles || !this.data.reactionRoles[messageId]) {
+            return false;
+        }
+        
+        delete this.data.reactionRoles[messageId];
+        this.save();
+        return true;
+    }
+
+    // ========== BIRTHDAY METHODS ==========
+    async setUserBirthday(userId, guildId, month, day) {
+        if (!this.data.birthdays) this.data.birthdays = {};
+        
+        const key = `${guildId}-${userId}`;
+        this.data.birthdays[key] = {
+            userId,
+            guildId,
+            month,
+            day,
+            setAt: Date.now()
+        };
+        
+        this.save();
+        return this.data.birthdays[key];
+    }
+
+    async getUserBirthday(userId, guildId) {
+        if (!this.data.birthdays) return null;
+        
+        const key = `${guildId}-${userId}`;
+        return this.data.birthdays[key] || null;
+    }
+
+    async getBirthdaysByGuild(guildId) {
+        if (!this.data.birthdays) return [];
+        
+        return Object.values(this.data.birthdays).filter(b => b.guildId === guildId);
+    }
+
+    async removeUserBirthday(userId, guildId) {
+        if (!this.data.birthdays) return false;
+        
+        const key = `${guildId}-${userId}`;
+        if (!this.data.birthdays[key]) return false;
+        
+        delete this.data.birthdays[key];
+        this.save();
+        return true;
     }
 }
 

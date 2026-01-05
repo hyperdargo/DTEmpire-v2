@@ -1628,6 +1628,46 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             
+            // ========== REACTION ROLE BUTTON HANDLER ==========
+            if (interaction.customId.startsWith('rr_')) {
+                try {
+                    const roleId = interaction.customId.replace('rr_', '');
+                    const role = interaction.guild.roles.cache.get(roleId);
+
+                    if (!role) {
+                        return interaction.reply({ 
+                            content: '❌ Role not found!', 
+                            flags: 64 
+                        });
+                    }
+
+                    const member = interaction.guild.members.cache.get(interaction.user.id);
+
+                    if (member.roles.cache.has(roleId)) {
+                        // Remove role
+                        await member.roles.remove(role);
+                        await interaction.reply({ 
+                            content: `✅ Removed role: ${role.name}`, 
+                            flags: 64 
+                        });
+                    } else {
+                        // Add role
+                        await member.roles.add(role);
+                        await interaction.reply({ 
+                            content: `✅ Added role: ${role.name}`, 
+                            flags: 64 
+                        });
+                    }
+                } catch (error) {
+                    console.error('Reaction role button error:', error);
+                    await interaction.reply({ 
+                        content: '❌ Failed to manage role!', 
+                        flags: 64 
+                    });
+                }
+                return;
+            }
+            
             // If no handler matched
             console.log(`[Button] No handler for: ${interaction.customId}`);
             
@@ -2472,6 +2512,17 @@ async function startBot() {
         }, 5000); // Start after 5 seconds
         
         console.log('✅ AutoRoom Manager initialized');
+        
+        // ========== INITIALIZE BIRTHDAY CHECKER ==========
+        try {
+            const birthdayCommand = client.commands.get('birthday');
+            if (birthdayCommand && birthdayCommand.initBirthdayChecker) {
+                birthdayCommand.initBirthdayChecker(client, client.db);
+                console.log('✅ Birthday checker initialized');
+            }
+        } catch (birthdayError) {
+            console.error('❌ Failed to initialize birthday checker:', birthdayError.message);
+        }
         
         // Login with environment variable token
         await client.login(config.bot.token);
