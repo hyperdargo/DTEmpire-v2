@@ -62,6 +62,12 @@ module.exports = {
                     await this.handleReset(message, args.slice(1), repService, client, db);
                     break;
 
+                case 'roles':
+                case 'role':
+                case 'rewards':
+                    await this.handleRoles(message, args.slice(1), repService, client, db);
+                    break;
+
                 default:
                     return this.showHelp(message);
             }
@@ -163,6 +169,9 @@ module.exports = {
             );
         }
 
+        // Check and assign role rewards
+        const roleResult = await repService.checkAndAssignRoles(mentionedUser, message.guild.id, newRepTotal);
+        
         const successEmbed = new EmbedBuilder()
             .setColor('#00ff00')
             .setTitle('✅ Reputation Given!')
@@ -197,6 +206,22 @@ module.exports = {
             )
             .setFooter({ text: 'Thank you for making the community better! 💖' })
             .setTimestamp();
+
+        // Add role rewards notification if any roles were added
+        if (roleResult.rolesAdded.length > 0) {
+            const roleNames = roleResult.rolesAdded
+                .map(roleId => {
+                    const role = message.guild.roles.cache.get(roleId);
+                    return role ? role.name : 'Unknown Role';
+                })
+                .join(', ');
+            
+            successEmbed.addFields({
+                name: '🎉 Role Rewards Unlocked!',
+                value: `${receiver.username} earned: **${roleNames}**`,
+                inline: false
+            });
+        }
 
         await message.reply({ embeds: [successEmbed] });
     },
@@ -539,6 +564,9 @@ module.exports = {
             // Reset reputation to 0
             await db.updateUserReputation(targetUser.id, message.guild.id, -oldRepValue);
 
+            // Check and remove role rewards after reset
+            const roleResult = await repService.checkAndAssignRoles(targetMember, message.guild.id, 0);
+
             // Log the reset action
             if (client.loggingSystem) {
                 await client.loggingSystem.logReputationAction(
@@ -602,6 +630,272 @@ module.exports = {
     },
 
     /**
+     * Handle: ^rep roles <add|remove|list>
+     * Admin-only command to manage reputation role rewards
+     */
+    async handleRoles(message, args, repService, client, db) {
+        // Check for admin permissions
+        const hasPermission = message.member.permissions.has('Administrator');
+        
+        if (!hasPermission) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Permission Denied')
+                .setDescription('You need **Administrator** permission to manage reputation role rewards!')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        const subcommand = args[0]?.toLowerCase();
+
+        if (!subcommand) {
+            // Show roles help
+            const embed = new EmbedBuilder()
+                .setColor('#5865f2')
+                .setTitle('🎁 Reputation Role Rewards - Help')
+                .setDescription('Manage automatic role rewards based on reputation thresholds')
+                .addFields(
+                    {
+                        name: '📝 Commands',
+                        value: '`^rep roles add <rep_threshold> @role` - Add a role reward\n`^rep roles remove @role` - Remove a role reward\n`^rep roles list` - List all role rewards',
+                        inline: false
+                    },
+                    {
+                        name: '📌 Examples',
+                        value: '`^rep roles add 10 @Active` - Award @Active role at 10 rep\n`^rep roles add 50 @Trusted` - Award @Trusted role at 50 rep\n`^rep roles remove @Active` - Remove the Active role reward\n`^rep roles list` - View all configured role rewards',
+                        inline: false
+                    },
+                    {
+                        name: 'ℹ️ Info',
+                        value: 'Roles are automatically assigned/removed when users reach or lose reputation thresholds.',
+                        inline: false
+                    }
+                )
+                .setFooter({ text: 'Reputation System • Admin Only' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        switch (subcommand) {
+            case 'add':
+                await this.handleRolesAdd(message, args.slice(1), db);
+                break;
+            case 'remove':
+            case 'delete':
+                await this.handleRolesRemove(message, args.slice(1), db);
+                break;
+            case 'list':
+            case 'show':
+                await this.handleRolesList(message, db, client);
+                break;
+            default:
+                const embed = new EmbedBuilder()
+                    .setColor('#ff0000')
+                    .setTitle('❌ Invalid Subcommand')
+                    .setDescription('Use `^rep roles` to see available commands.')
+                    .setFooter({ text: 'Reputation System' })
+                    .setTimestamp();
+                return message.reply({ embeds: [embed] });
+        }
+    },
+
+    /**
+     * Handle: ^rep roles add <threshold> @role
+     */
+    async handleRolesAdd(message, args, db) {
+        const threshold = parseInt(args[0]);
+        const role = message.mentions.roles.first();
+
+        if (!threshold || isNaN(threshold) || threshold < 1) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Invalid Threshold')
+                .setDescription('Please provide a valid reputation threshold (positive number).')
+                .addFields({
+                    name: '📝 Usage',
+                    value: '`^rep roles add <rep_threshold> @role`',
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        if (!role) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Invalid Role')
+                .setDescription('Please mention a valid role to add as a reward.')
+                .addFields({
+                    name: '📝 Usage',
+                    value: '`^rep roles add <rep_threshold> @role`',
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        try {
+            await db.addRepRoleReward(message.guild.id, role.id, threshold);
+
+            const embed = new EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle('✅ Role Reward Added')
+                .setDescription(`Successfully configured role reward!`)
+                .addFields(
+                    {
+                        name: '🎭 Role',
+                        value: `${role.toString()} (\`${role.name}\`)`,
+                        inline: true
+                    },
+                    {
+                        name: '⭐ Required Reputation',
+                        value: `${threshold} points`,
+                        inline: true
+                    }
+                )
+                .addFields({
+                    name: 'ℹ️ Info',
+                    value: 'Users will automatically receive this role when they reach the reputation threshold.',
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error adding role reward:', error);
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Error')
+                .setDescription('An error occurred while adding the role reward.')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        }
+    },
+
+    /**
+     * Handle: ^rep roles remove @role
+     */
+    async handleRolesRemove(message, args, db) {
+        const role = message.mentions.roles.first();
+
+        if (!role) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Invalid Role')
+                .setDescription('Please mention a valid role to remove.')
+                .addFields({
+                    name: '📝 Usage',
+                    value: '`^rep roles remove @role`',
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        try {
+            const removed = await db.removeRepRoleReward(message.guild.id, role.id);
+
+            if (removed) {
+                const embed = new EmbedBuilder()
+                    .setColor('#00ff00')
+                    .setTitle('✅ Role Reward Removed')
+                    .setDescription(`Successfully removed role reward for ${role.toString()}`)
+                    .setFooter({ text: 'Reputation System' })
+                    .setTimestamp();
+
+                await message.reply({ embeds: [embed] });
+            } else {
+                const embed = new EmbedBuilder()
+                    .setColor('#ffaa00')
+                    .setTitle('⚠️ Not Found')
+                    .setDescription(`No role reward found for ${role.toString()}`)
+                    .setFooter({ text: 'Reputation System' })
+                    .setTimestamp();
+
+                await message.reply({ embeds: [embed] });
+            }
+        } catch (error) {
+            console.error('Error removing role reward:', error);
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Error')
+                .setDescription('An error occurred while removing the role reward.')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        }
+    },
+
+    /**
+     * Handle: ^rep roles list
+     */
+    async handleRolesList(message, db, client) {
+        try {
+            const roleRewards = await db.getRepRoleRewards(message.guild.id);
+
+            if (roleRewards.length === 0) {
+                const embed = new EmbedBuilder()
+                    .setColor('#ffaa00')
+                    .setTitle('🎁 Reputation Role Rewards')
+                    .setDescription('No role rewards configured yet!')
+                    .addFields({
+                        name: '💡 Get Started',
+                        value: 'Use `^rep roles add <threshold> @role` to add your first role reward.',
+                        inline: false
+                    })
+                    .setFooter({ text: 'Reputation System' })
+                    .setTimestamp();
+
+                return message.reply({ embeds: [embed] });
+            }
+
+            let description = '**Configured role rewards:**\n\n';
+            for (const reward of roleRewards) {
+                const role = message.guild.roles.cache.get(reward.role_id);
+                const roleName = role ? role.toString() : `Unknown Role (${reward.role_id})`;
+                description += `⭐ **${reward.rep_threshold} reputation** → ${roleName}\n`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor('#5865f2')
+                .setTitle('🎁 Reputation Role Rewards')
+                .setDescription(description)
+                .addFields({
+                    name: 'ℹ️ Info',
+                    value: `Total rewards: ${roleRewards.length}\nRoles are automatically assigned when users reach thresholds.`,
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error listing role rewards:', error);
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Error')
+                .setDescription('An error occurred while fetching role rewards.')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        }
+    },
+
+    /**
      * Show help message
      */
     showHelp(message) {
@@ -643,7 +937,7 @@ module.exports = {
         if (isAdmin) {
             embed.addFields({
                 name: '⚙️ Admin Commands',
-                value: '`^rep reset @user` - Reset a user\'s reputation to 0',
+                value: '`^rep reset @user` - Reset a user\'s reputation to 0\n`^rep roles <add|remove|list>` - Manage role rewards',
                 inline: false
             });
         }

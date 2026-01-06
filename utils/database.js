@@ -23,7 +23,8 @@ class Database {
             suggestions: {}, // Added for suggestion system
             reputation: {}, // Added for reputation system
             repLogs: {}, // Added for reputation logs
-            repCooldowns: {} // Added for reputation cooldowns
+            repCooldowns: {}, // Added for reputation cooldowns
+            repRoleRewards: {} // Added for reputation role rewards
         };
         this.dbPath = path.join(__dirname, '..', 'data', 'database.json');
     }
@@ -1707,6 +1708,87 @@ class Database {
         }
         
         return cleaned;
+    }
+
+    // ========== REPUTATION ROLE REWARDS METHODS ==========
+    
+    /**
+     * Add a reputation role reward
+     * @param {string} guildId - Guild ID
+     * @param {string} roleId - Role ID to award
+     * @param {number} repThreshold - Reputation threshold required
+     * @returns {Object} Role reward entry
+     */
+    async addRepRoleReward(guildId, roleId, repThreshold) {
+        if (!this.data.repRoleRewards) this.data.repRoleRewards = {};
+        if (!this.data.repRoleRewards[guildId]) this.data.repRoleRewards[guildId] = [];
+        
+        // Check if role reward already exists
+        const existing = this.data.repRoleRewards[guildId].find(r => r.role_id === roleId);
+        if (existing) {
+            // Update threshold
+            existing.rep_threshold = repThreshold;
+            existing.updated_at = Date.now();
+        } else {
+            // Add new role reward
+            this.data.repRoleRewards[guildId].push({
+                role_id: roleId,
+                rep_threshold: repThreshold,
+                created_at: Date.now(),
+                updated_at: Date.now()
+            });
+        }
+        
+        // Sort by threshold (ascending)
+        this.data.repRoleRewards[guildId].sort((a, b) => a.rep_threshold - b.rep_threshold);
+        
+        this.save();
+        return this.data.repRoleRewards[guildId].find(r => r.role_id === roleId);
+    }
+
+    /**
+     * Remove a reputation role reward
+     * @param {string} guildId - Guild ID
+     * @param {string} roleId - Role ID to remove
+     * @returns {boolean} True if removed, false if not found
+     */
+    async removeRepRoleReward(guildId, roleId) {
+        if (!this.data.repRoleRewards || !this.data.repRoleRewards[guildId]) return false;
+        
+        const initialLength = this.data.repRoleRewards[guildId].length;
+        this.data.repRoleRewards[guildId] = this.data.repRoleRewards[guildId].filter(
+            r => r.role_id !== roleId
+        );
+        
+        if (this.data.repRoleRewards[guildId].length < initialLength) {
+            this.save();
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Get all reputation role rewards for a guild
+     * @param {string} guildId - Guild ID
+     * @returns {Array} List of role rewards sorted by threshold
+     */
+    async getRepRoleRewards(guildId) {
+        if (!this.data.repRoleRewards || !this.data.repRoleRewards[guildId]) return [];
+        return this.data.repRoleRewards[guildId];
+    }
+
+    /**
+     * Get roles that a user should have based on their reputation
+     * @param {string} guildId - Guild ID
+     * @param {number} userRep - User's current reputation
+     * @returns {Array} List of role IDs user should have
+     */
+    async getRolesForReputation(guildId, userRep) {
+        const roleRewards = await this.getRepRoleRewards(guildId);
+        return roleRewards
+            .filter(reward => userRep >= reward.rep_threshold)
+            .map(reward => reward.role_id);
     }
 }
 

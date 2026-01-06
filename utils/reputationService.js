@@ -293,6 +293,63 @@ class ReputationService {
             };
         }
     }
+
+    /**
+     * Check and assign reputation role rewards to a member
+     * @param {Object} member - Discord Member object
+     * @param {string} guildId - Guild ID
+     * @param {number} currentRep - User's current reputation
+     * @returns {Object} { rolesAdded: [], rolesRemoved: [] }
+     */
+    async checkAndAssignRoles(member, guildId, currentRep) {
+        try {
+            const roleRewards = await this.db.getRepRoleRewards(guildId);
+            if (roleRewards.length === 0) {
+                return { rolesAdded: [], rolesRemoved: [] };
+            }
+
+            const rolesUserShouldHave = roleRewards
+                .filter(reward => currentRep >= reward.rep_threshold)
+                .map(reward => reward.role_id);
+
+            const allRewardRoleIds = roleRewards.map(r => r.role_id);
+            const rolesUserHas = member.roles.cache
+                .filter(role => allRewardRoleIds.includes(role.id))
+                .map(role => role.id);
+
+            const rolesAdded = [];
+            const rolesRemoved = [];
+
+            // Add roles user should have but doesn't
+            for (const roleId of rolesUserShouldHave) {
+                if (!rolesUserHas.includes(roleId)) {
+                    try {
+                        await member.roles.add(roleId, 'Reputation role reward');
+                        rolesAdded.push(roleId);
+                    } catch (error) {
+                        console.error(`Failed to add role ${roleId}:`, error.message);
+                    }
+                }
+            }
+
+            // Remove roles user has but shouldn't (lost reputation)
+            for (const roleId of rolesUserHas) {
+                if (!rolesUserShouldHave.includes(roleId)) {
+                    try {
+                        await member.roles.remove(roleId, 'Lost reputation threshold');
+                        rolesRemoved.push(roleId);
+                    } catch (error) {
+                        console.error(`Failed to remove role ${roleId}:`, error.message);
+                    }
+                }
+            }
+
+            return { rolesAdded, rolesRemoved };
+        } catch (error) {
+            console.error('Error checking and assigning roles:', error);
+            return { rolesAdded: [], rolesRemoved: [] };
+        }
+    }
 }
 
 module.exports = ReputationService;
