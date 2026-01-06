@@ -68,6 +68,12 @@ module.exports = {
                     await this.handleRoles(message, args.slice(1), repService, client, db);
                     break;
 
+                case 'suspicious':
+                case 'patterns':
+                case 'abuse':
+                    await this.handleSuspicious(message, args.slice(1), db, client);
+                    break;
+
                 default:
                     return this.showHelp(message);
             }
@@ -896,6 +902,95 @@ module.exports = {
     },
 
     /**
+     * Handle: ^rep suspicious
+     * Admin-only command to view suspicious reputation patterns
+     */
+    async handleSuspicious(message, args, db, client) {
+        // Check for admin permissions
+        const hasPermission = message.member.permissions.has('Administrator');
+        
+        if (!hasPermission) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Permission Denied')
+                .setDescription('You need **Administrator** permission to view suspicious patterns!')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        try {
+            const patterns = await db.getSuspiciousPatterns(message.guild.id, true);
+
+            if (patterns.length === 0) {
+                const embed = new EmbedBuilder()
+                    .setColor('#00ff00')
+                    .setTitle('✅ No Suspicious Patterns')
+                    .setDescription('No suspicious reputation trading patterns detected!')
+                    .addFields({
+                        name: 'ℹ️ Info',
+                        value: 'The system automatically detects users who exchange reputation with each other 3+ times in 30 days.',
+                        inline: false
+                    })
+                    .setFooter({ text: 'Reputation System' })
+                    .setTimestamp();
+
+                return message.reply({ embeds: [embed] });
+            }
+
+            let description = `**${patterns.length} suspicious pattern(s) detected:**\n\n`;
+            
+            for (let i = 0; i < Math.min(patterns.length, 5); i++) {
+                const pattern = patterns[i];
+                const user1 = await client.users.fetch(pattern.user1_id).catch(() => null);
+                const user2 = await client.users.fetch(pattern.user2_id).catch(() => null);
+                
+                const user1Name = user1 ? user1.username : 'Unknown User';
+                const user2Name = user2 ? user2.username : 'Unknown User';
+                
+                const timestamp = `<t:${Math.floor(pattern.logged_at / 1000)}:R>`;
+                description += `⚠️ **${user1Name}** ↔ **${user2Name}**\n`;
+                description += `   Exchanges: ${pattern.pattern_data.count} (${pattern.pattern_data.aToB}→, ←${pattern.pattern_data.bToA})\n`;
+                description += `   Detected: ${timestamp}\n\n`;
+            }
+
+            if (patterns.length > 5) {
+                description += `*...and ${patterns.length - 5} more*\n`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor('#ffaa00')
+                .setTitle('⚠️ Suspicious Reputation Patterns')
+                .setDescription(description)
+                .addFields({
+                    name: '📊 Detection Criteria',
+                    value: '• 3+ mutual reputation exchanges in 30 days\n• Both users giving rep to each other\n• Logged but not automatically blocked',
+                    inline: false
+                })
+                .addFields({
+                    name: '🔍 Review Action',
+                    value: 'Review user histories with `^rep history @user` and consider `^rep reset @user` if abuse is confirmed.',
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System • Abuse Detection' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error fetching suspicious patterns:', error);
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Error')
+                .setDescription('An error occurred while fetching suspicious patterns.')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        }
+    },
+
+    /**
      * Show help message
      */
     showHelp(message) {
@@ -937,7 +1032,7 @@ module.exports = {
         if (isAdmin) {
             embed.addFields({
                 name: '⚙️ Admin Commands',
-                value: '`^rep reset @user` - Reset a user\'s reputation to 0\n`^rep roles <add|remove|list>` - Manage role rewards',
+                value: '`^rep reset @user` - Reset a user\'s reputation to 0\n`^rep roles <add|remove|list>` - Manage role rewards\n`^rep suspicious` - View suspicious trading patterns',
                 inline: false
             });
         }

@@ -160,6 +160,14 @@ class ReputationService {
             const cooldownExpiry = Date.now() + (this.SAME_USER_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
             await this.db.setRepCooldown(guild.id, giver.id, receiver.id, cooldownExpiry);
 
+            // Check for suspicious patterns (A↔B trading)
+            const pattern = await this.db.checkRepPattern(guild.id, giver.id, receiver.id);
+            if (pattern.suspicious) {
+                // Log suspicious pattern but don't block
+                await this.db.logSuspiciousPattern(guild.id, giver.id, receiver.id, pattern);
+                console.log(`⚠️ Suspicious rep pattern detected: ${giver.id} ↔ ${receiver.id} (${pattern.count} exchanges)`);
+            }
+
             // Get receiver's rank
             const rank = await this.db.getRepRank(receiver.id, guild.id);
 

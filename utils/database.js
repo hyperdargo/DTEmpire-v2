@@ -24,7 +24,8 @@ class Database {
             reputation: {}, // Added for reputation system
             repLogs: {}, // Added for reputation logs
             repCooldowns: {}, // Added for reputation cooldowns
-            repRoleRewards: {} // Added for reputation role rewards
+            repRoleRewards: {}, // Added for reputation role rewards
+            repSuspicious: {} // Added for suspicious reputation pattern tracking
         };
         this.dbPath = path.join(__dirname, '..', 'data', 'database.json');
     }
@@ -1789,6 +1790,128 @@ class Database {
         return roleRewards
             .filter(reward => userRep >= reward.rep_threshold)
             .map(reward => reward.role_id);
+    }
+
+    // ========== REPUTATION PATTERN DETECTION METHODS ==========
+    
+    /**
+     * Check for suspicious reputation patterns (A↔B trading)
+     * @param {string} guildId - Guild ID
+     * @param {string} user1Id - First user ID
+     * @param {string} user2Id - Second user ID
+     * @returns {Object} Pattern analysis
+     */
+    async checkRepPattern(guildId, user1Id, user2Id) {
+        if (!this.data.repLogs || !this.data.repLogs[guildId]) {
+            return { suspicious: false, count: 0 };
+        }
+
+        const logs = this.data.repLogs[guildId];
+        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+        
+        // Count A→B and B→A reps in last 30 days
+        const aToB = logs.filter(log => 
+            log.giver_id === user1Id && 
+            log.receiver_id === user2Id && 
+            log.created_at > thirtyDaysAgo
+        ).length;
+        
+        const bToA = logs.filter(log => 
+            log.giver_id === user2Id && 
+            log.receiver_id === user1Id && 
+            log.created_at > thirtyDaysAgo
+        ).length;
+        
+        const totalExchanges = aToB + bToA;
+        const isMutual = aToB > 0 && bToA > 0;
+        
+        // Flag if 3+ mutual exchanges in 30 days
+        const suspicious = isMutual && totalExchanges >= 3;
+        
+        return {
+            suspicious,
+            count: totalExchanges,
+            aToB,
+            bToA,
+            isMutual
+        };
+    }
+
+    /**
+     * Log suspicious reputation pattern
+     * @param {string} guildId - Guild ID
+     * @param {string} user1Id - First user ID
+     * @param {string} user2Id - Second user ID
+     * @param {Object} patternData - Pattern analysis data
+     */
+    async logSuspiciousPattern(guildId, user1Id, user2Id, patternData) {
+        if (!this.data.repSuspicious) this.data.repSuspicious = {};
+        if (!this.data.repSuspicious[guildId]) this.data.repSuspicious[guildId] = [];
+        
+        const key = [user1Id, user2Id].sort().join('_');
+        
+        // Check if already logged recently (within 7 days)
+        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        const existingRecent = this.data.repSuspicious[guildId].find(
+            entry => entry.pair_key === key && entry.logged_at > sevenDaysAgo
+        );
+        
+        if (!existingRecent) {
+            this.data.repSuspicious[guildId].push({
+                pair_key: key,
+                user1_id: user1Id,
+                user2_id: user2Id,
+                pattern_data: patternData,
+                logged_at: Date.now(),
+                reviewed: false
+            });
+            
+            // Keep only last 100 entries per guild
+            if (this.data.repSuspicious[guildId].length > 100) {
+                this.data.repSuspicious[guildId] = this.data.repSuspicious[guildId].slice(-100);
+            }
+            
+            this.save();
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Get suspicious reputation patterns for a guild
+     * @param {string} guildId - Guild ID
+     * @param {boolean} unreviewedOnly - Only show unreviewed patterns
+     * @returns {Array} Suspicious patterns
+     */
+    async getSuspiciousPatterns(guildId, unreviewedOnly = false) {
+        if (!this.data.repSuspicious || !this.data.repSuspicious[guildId]) return [];
+        
+        let patterns = this.data.repSuspicious[guildId];
+        if (unreviewedOnly) {
+            patterns = patterns.filter(p => !p.reviewed);
+        }
+        
+        return patterns.sort((a, b) => b.logged_at - a.logged_at);
+    }
+
+    /**
+     * Mark suspicious pattern as reviewed
+     * @param {string} guildId - Guild ID
+     * @param {string} pairKey - Pair key
+     */
+    async markPatternReviewed(guildId, pairKey) {
+        if (!this.data.repSuspicious || !this.data.repSuspicious[guildId]) return false;
+        
+        const pattern = this.data.repSuspicious[guildId].find(p => p.pair_key === pairKey);
+        if (pattern) {
+            pattern.reviewed = true;
+            pattern.reviewed_at = Date.now();
+            this.save();
+            return true;
+        }
+        
+        return false;
     }
 }
 
