@@ -160,6 +160,7 @@ class Database {
                 economy_log_channel: null,
                 leveling_log_channel: null,
                 giveaway_log_channel: null,
+                reputation_log_channel: null,
                 
                 // ========== SYSTEM CHANNELS ==========
                 welcome_channel: null,

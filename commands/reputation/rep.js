@@ -58,6 +58,10 @@ module.exports = {
                     await this.handleHistory(message, args.slice(1), repService, client);
                     break;
 
+                case 'reset':
+                    await this.handleReset(message, args.slice(1), repService, client, db);
+                    break;
+
                 default:
                     return this.showHelp(message);
             }
@@ -142,6 +146,22 @@ module.exports = {
 
         // Success! Send confirmation embed
         const { receiver, newRepTotal, rank, reason: cleanReason } = result.data;
+
+        // Log reputation action to logging system
+        if (client.loggingSystem) {
+            await client.loggingSystem.logReputationAction(
+                message.guild.id,
+                'give',
+                message.author,
+                receiver,
+                cleanReason,
+                message.channel.id,
+                {
+                    newTotal: newRepTotal,
+                    rank: rank
+                }
+            );
+        }
 
         const successEmbed = new EmbedBuilder()
             .setColor('#00ff00')
@@ -386,11 +406,34 @@ module.exports = {
 
     /**
      * Handle: ^rep history [@user]
+     * Staff-only when viewing other users
      */
     async handleHistory(message, args, repService, client) {
-        // Check if user mentioned someone, otherwise check their own history
-        const targetMember = message.mentions.members.first() || message.member;
-        const targetUser = targetMember.user;
+        // Check if user mentioned someone
+        const targetMember = message.mentions.members.first();
+        const targetUser = targetMember ? targetMember.user : message.member.user;
+        
+        // If checking someone else's history, require staff permissions
+        if (targetMember && targetMember.id !== message.member.id) {
+            const hasPermission = message.member.permissions.has('ManageMessages') || 
+                                 message.member.permissions.has('Administrator');
+            
+            if (!hasPermission) {
+                const embed = new EmbedBuilder()
+                    .setColor('#ff0000')
+                    .setTitle('❌ Permission Denied')
+                    .setDescription('You need **Manage Messages** permission or higher to view other users\' reputation history!')
+                    .addFields({
+                        name: '💡 Tip',
+                        value: 'You can view your own history with `^rep history` (without mentioning anyone)',
+                        inline: false
+                    })
+                    .setFooter({ text: 'Reputation System' })
+                    .setTimestamp();
+
+                return message.reply({ embeds: [embed] });
+            }
+        }
 
         const result = await repService.getRepHistory(targetUser, message.guild.id, 10);
 
@@ -444,9 +487,127 @@ module.exports = {
     },
 
     /**
+     * Handle: ^rep reset @user
+     * Admin-only command to reset a user's reputation
+     */
+    async handleReset(message, args, repService, client, db) {
+        // Check for admin permissions
+        const hasPermission = message.member.permissions.has('Administrator');
+        
+        if (!hasPermission) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Permission Denied')
+                .setDescription('You need **Administrator** permission to reset reputation!')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        // Check if user mentioned someone
+        const targetMember = message.mentions.members.first();
+        
+        if (!targetMember) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Invalid Usage')
+                .setDescription('You must mention a user to reset their reputation!')
+                .addFields({
+                    name: '📝 Correct Usage',
+                    value: '`^rep reset @user`',
+                    inline: false
+                })
+                .addFields({
+                    name: '📌 Example',
+                    value: '`^rep reset @John`',
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        const targetUser = targetMember.user;
+
+        try {
+            // Get current reputation before reset
+            const currentRep = await db.getUserReputation(targetUser.id, message.guild.id);
+            const oldRepValue = currentRep.rep || 0;
+
+            // Reset reputation to 0
+            await db.updateUserReputation(targetUser.id, message.guild.id, -oldRepValue);
+
+            // Log the reset action
+            if (client.loggingSystem) {
+                await client.loggingSystem.logReputationAction(
+                    message.guild.id,
+                    'reset',
+                    message.author,
+                    targetUser,
+                    `Reset by administrator (previous: ${oldRepValue})`,
+                    message.channel.id,
+                    {
+                        newTotal: 0,
+                        moderator: message.author
+                    }
+                );
+            }
+
+            // Send confirmation
+            const embed = new EmbedBuilder()
+                .setColor('#ff9900')
+                .setTitle('🔄 Reputation Reset')
+                .setDescription(`Successfully reset reputation for ${targetUser.username}`)
+                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+                .addFields(
+                    {
+                        name: '🎯 Target User',
+                        value: `${targetUser.toString()}\n\`${targetUser.tag}\``,
+                        inline: true
+                    },
+                    {
+                        name: '📊 Previous Reputation',
+                        value: `${oldRepValue} points`,
+                        inline: true
+                    },
+                    {
+                        name: '⭐ New Reputation',
+                        value: '0 points',
+                        inline: true
+                    },
+                    {
+                        name: '🛡️ Administrator',
+                        value: `${message.author.toString()}\n\`${message.author.tag}\``,
+                        inline: false
+                    }
+                )
+                .setFooter({ text: 'Reputation System • Admin Action' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+
+        } catch (error) {
+            console.error('Reset reputation error:', error);
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Error')
+                .setDescription('An error occurred while resetting reputation. Please try again.')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        }
+    },
+
+    /**
      * Show help message
      */
     showHelp(message) {
+        const isStaff = message.member.permissions.has('ManageMessages');
+        const isAdmin = message.member.permissions.has('Administrator');
+
         const embed = new EmbedBuilder()
             .setColor('#5865f2')
             .setTitle('⭐ Reputation System - Help')
@@ -454,7 +615,7 @@ module.exports = {
             .addFields(
                 {
                     name: '📝 Commands',
-                    value: '`^rep give @user <reason>` - Give reputation to a user\n`^rep check [@user]` - Check your or someone\'s reputation\n`^rep leaderboard` - View the top members\n`^rep history [@user]` - View reputation history\n`^rep info` - Learn more about the system',
+                    value: '`^rep give @user <reason>` - Give reputation to a user\n`^rep check [@user]` - Check your or someone\'s reputation\n`^rep leaderboard` - View the top members\n`^rep history` - View your reputation history\n`^rep info` - Learn more about the system',
                     inline: false
                 },
                 {
@@ -467,8 +628,27 @@ module.exports = {
                     value: '• You can give 1 rep per day\n• 7 day cooldown per user\n• Cannot rep yourself or bots\n• Reason must be 5-200 characters',
                     inline: false
                 }
-            )
-            .setFooter({ text: 'Reputation System • Use ^rep info for more details' })
+            );
+
+        // Add staff commands if user has permissions
+        if (isStaff) {
+            embed.addFields({
+                name: '🛡️ Staff Commands',
+                value: '`^rep history @user` - View any user\'s reputation history',
+                inline: false
+            });
+        }
+
+        // Add admin commands if user has permissions
+        if (isAdmin) {
+            embed.addFields({
+                name: '⚙️ Admin Commands',
+                value: '`^rep reset @user` - Reset a user\'s reputation to 0',
+                inline: false
+            });
+        }
+
+        embed.setFooter({ text: 'Reputation System • Use ^rep info for more details' })
             .setTimestamp();
 
         return message.reply({ embeds: [embed] });
