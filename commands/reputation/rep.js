@@ -1389,7 +1389,7 @@ module.exports = {
             });
         }
 
-        embed.setFooter({ text: 'Reputation System • Use ^rep info for more details' })
+        embed.setFooter({ text: 'Reputation System • Use ^rep info for more details "CREATED BY JAGGU762 WITH ❤" ' })
             .setTimestamp();
 
         return message.reply({ embeds: [embed] });
