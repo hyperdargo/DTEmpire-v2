@@ -74,6 +74,12 @@ module.exports = {
                     await this.handleSuspicious(message, args.slice(1), db, client);
                     break;
 
+                case 'config':
+                case 'configure':
+                case 'settings':
+                    await this.handleConfig(message, args.slice(1), db, client);
+                    break;
+
                 default:
                     return this.showHelp(message);
             }
@@ -991,6 +997,352 @@ module.exports = {
     },
 
     /**
+     * Handle: ^rep config
+     * Admin-only command to configure reputation system settings
+     */
+    async handleConfig(message, args, db, client) {
+        // Check for admin permissions
+        const hasPermission = message.member.permissions.has('Administrator');
+        
+        if (!hasPermission) {
+            const embed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle('❌ Permission Denied')
+                .setDescription('You need **Administrator** permission to configure the reputation system!')
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            return message.reply({ embeds: [embed] });
+        }
+
+        const subcommand = args[0]?.toLowerCase();
+
+        if (!subcommand) {
+            // Show current configuration
+            return await this.showCurrentConfig(message, db);
+        }
+
+        switch (subcommand) {
+            case 'enable':
+                await this.configSetEnabled(message, db, true);
+                break;
+            case 'disable':
+                await this.configSetEnabled(message, db, false);
+                break;
+            case 'cooldown':
+                await this.configSetCooldown(message, args.slice(1), db);
+                break;
+            case 'dailylimit':
+            case 'daily':
+                await this.configSetDailyLimit(message, args.slice(1), db);
+                break;
+            case 'reason':
+                await this.configSetReasonRequired(message, args.slice(1), db);
+                break;
+            case 'channels':
+            case 'channel':
+                await this.configSetChannels(message, args.slice(1), db);
+                break;
+            case 'logchannel':
+            case 'log':
+                await this.configSetLogChannel(message, args.slice(1), db);
+                break;
+            case 'reset':
+                await this.configReset(message, db);
+                break;
+            default:
+                await this.showCurrentConfig(message, db);
+        }
+    },
+
+    async showCurrentConfig(message, db) {
+        try {
+            const config = await db.getGuildConfig(message.guild.id);
+
+            const embed = new EmbedBuilder()
+                .setColor('#5865f2')
+                .setTitle('⚙️ Reputation System Configuration')
+                .setDescription('Current reputation system settings for this server')
+                .addFields(
+                    {
+                        name: '🔧 System Status',
+                        value: `Enabled: ${config.reputation_enabled ? '✅ Yes' : '❌ No'}`,
+                        inline: true
+                    },
+                    {
+                        name: '⏰ Cooldowns',
+                        value: `Same-user: ${config.reputation_cooldown_days} days\nDaily limit: ${config.reputation_daily_limit} per day`,
+                        inline: true
+                    },
+                    {
+                        name: '📝 Reason Settings',
+                        value: `Required: ${config.reputation_reason_required ? 'Yes' : 'No'}\nMin length: ${config.reputation_min_reason_length} chars\nMax length: ${config.reputation_max_reason_length} chars`,
+                        inline: true
+                    },
+                    {
+                        name: '👤 Account Requirements',
+                        value: `Min account age: ${config.reputation_min_account_age_days} days\nMin server time: ${config.reputation_min_server_age_days} days`,
+                        inline: true
+                    },
+                    {
+                        name: '📍 Allowed Channels',
+                        value: config.reputation_allowed_channels && config.reputation_allowed_channels.length > 0 
+                            ? config.reputation_allowed_channels.map(id => `<#${id}>`).join(', ')
+                            : 'All channels',
+                        inline: true
+                    },
+                    {
+                        name: '📊 Log Channel',
+                        value: config.reputation_log_channel ? `<#${config.reputation_log_channel}>` : 'Not set',
+                        inline: true
+                    }
+                )
+                .addFields({
+                    name: '⚙️ Configuration Commands',
+                    value: '`^rep config enable/disable` - Toggle system\n`^rep config cooldown <days>` - Set cooldown duration\n`^rep config daily <amount>` - Set daily limit\n`^rep config reason <true/false>` - Require reason\n`^rep config channels <#channel...>` - Set allowed channels\n`^rep config log <#channel>` - Set log channel\n`^rep config reset` - Reset to defaults',
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System • Admin Only' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error showing config:', error);
+            await message.reply('❌ An error occurred while fetching configuration.');
+        }
+    },
+
+    async configSetEnabled(message, db, enabled) {
+        try {
+            const config = await db.getGuildConfig(message.guild.id);
+            config.reputation_enabled = enabled;
+            await db.updateGuildConfig(message.guild.id, config);
+
+            const embed = new EmbedBuilder()
+                .setColor(enabled ? '#00ff00' : '#ff9900')
+                .setTitle(enabled ? '✅ System Enabled' : '⚠️ System Disabled')
+                .setDescription(`Reputation system has been ${enabled ? 'enabled' : 'disabled'} for this server.`)
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error setting enabled:', error);
+            await message.reply('❌ An error occurred while updating configuration.');
+        }
+    },
+
+    async configSetCooldown(message, args, db) {
+        const days = parseInt(args[0]);
+
+        if (!days || days < 1 || days > 30) {
+            return await message.reply('❌ Please provide a valid cooldown duration between 1 and 30 days.');
+        }
+
+        try {
+            const config = await db.getGuildConfig(message.guild.id);
+            config.reputation_cooldown_days = days;
+            await db.updateGuildConfig(message.guild.id, config);
+
+            const embed = new EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle('✅ Cooldown Updated')
+                .setDescription(`Same-user cooldown set to **${days} days**.`)
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error setting cooldown:', error);
+            await message.reply('❌ An error occurred while updating configuration.');
+        }
+    },
+
+    async configSetDailyLimit(message, args, db) {
+        const limit = parseInt(args[0]);
+
+        if (!limit || limit < 1 || limit > 10) {
+            return await message.reply('❌ Please provide a valid daily limit between 1 and 10.');
+        }
+
+        try {
+            const config = await db.getGuildConfig(message.guild.id);
+            config.reputation_daily_limit = limit;
+            await db.updateGuildConfig(message.guild.id, config);
+
+            const embed = new EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle('✅ Daily Limit Updated')
+                .setDescription(`Daily reputation limit set to **${limit} per day**.`)
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error setting daily limit:', error);
+            await message.reply('❌ An error occurred while updating configuration.');
+        }
+    },
+
+    async configSetReasonRequired(message, args, db) {
+        const value = args[0]?.toLowerCase();
+
+        if (value !== 'true' && value !== 'false') {
+            return await message.reply('❌ Please specify `true` or `false`.');
+        }
+
+        const required = value === 'true';
+
+        try {
+            const config = await db.getGuildConfig(message.guild.id);
+            config.reputation_reason_required = required;
+            await db.updateGuildConfig(message.guild.id, config);
+
+            const embed = new EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle('✅ Reason Requirement Updated')
+                .setDescription(`Reason is now **${required ? 'required' : 'optional'}** when giving reputation.`)
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error setting reason requirement:', error);
+            await message.reply('❌ An error occurred while updating configuration.');
+        }
+    },
+
+    async configSetChannels(message, args, db) {
+        if (args.length === 0 || args[0] === 'clear') {
+            // Clear channel restrictions
+            try {
+                const config = await db.getGuildConfig(message.guild.id);
+                config.reputation_allowed_channels = [];
+                await db.updateGuildConfig(message.guild.id, config);
+
+                const embed = new EmbedBuilder()
+                    .setColor('#00ff00')
+                    .setTitle('✅ Channel Restrictions Cleared')
+                    .setDescription('Reputation can now be given in **all channels**.')
+                    .setFooter({ text: 'Reputation System' })
+                    .setTimestamp();
+
+                return await message.reply({ embeds: [embed] });
+            } catch (error) {
+                console.error('Error clearing channels:', error);
+                return await message.reply('❌ An error occurred while updating configuration.');
+            }
+        }
+
+        const channels = message.mentions.channels;
+        if (channels.size === 0) {
+            return await message.reply('❌ Please mention at least one channel or use `clear` to allow all channels.');
+        }
+
+        try {
+            const config = await db.getGuildConfig(message.guild.id);
+            config.reputation_allowed_channels = Array.from(channels.keys());
+            await db.updateGuildConfig(message.guild.id, config);
+
+            const channelList = Array.from(channels.values()).map(c => c.toString()).join(', ');
+
+            const embed = new EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle('✅ Allowed Channels Updated')
+                .setDescription(`Reputation can now only be given in: ${channelList}`)
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error setting channels:', error);
+            await message.reply('❌ An error occurred while updating configuration.');
+        }
+    },
+
+    async configSetLogChannel(message, args, db) {
+        if (args.length === 0 || args[0] === 'clear') {
+            // Clear log channel
+            try {
+                const config = await db.getGuildConfig(message.guild.id);
+                config.reputation_log_channel = null;
+                await db.updateGuildConfig(message.guild.id, config);
+
+                const embed = new EmbedBuilder()
+                    .setColor('#00ff00')
+                    .setTitle('✅ Log Channel Cleared')
+                    .setDescription('Reputation actions will no longer be logged to a channel.')
+                    .setFooter({ text: 'Reputation System' })
+                    .setTimestamp();
+
+                return await message.reply({ embeds: [embed] });
+            } catch (error) {
+                console.error('Error clearing log channel:', error);
+                return await message.reply('❌ An error occurred while updating configuration.');
+            }
+        }
+
+        const channel = message.mentions.channels.first();
+        if (!channel) {
+            return await message.reply('❌ Please mention a channel or use `clear` to disable logging.');
+        }
+
+        try {
+            const config = await db.getGuildConfig(message.guild.id);
+            config.reputation_log_channel = channel.id;
+            await db.updateGuildConfig(message.guild.id, config);
+
+            const embed = new EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle('✅ Log Channel Set')
+                .setDescription(`Reputation actions will now be logged to ${channel.toString()}`)
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error setting log channel:', error);
+            await message.reply('❌ An error occurred while updating configuration.');
+        }
+    },
+
+    async configReset(message, db) {
+        try {
+            const config = await db.getGuildConfig(message.guild.id);
+            
+            // Reset to defaults
+            config.reputation_enabled = true;
+            config.reputation_cooldown_days = 7;
+            config.reputation_daily_limit = 1;
+            config.reputation_reason_required = true;
+            config.reputation_min_account_age_days = 7;
+            config.reputation_min_server_age_days = 3;
+            config.reputation_allowed_channels = [];
+            config.reputation_min_reason_length = 5;
+            config.reputation_max_reason_length = 200;
+            
+            await db.updateGuildConfig(message.guild.id, config);
+
+            const embed = new EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle('✅ Configuration Reset')
+                .setDescription('Reputation system configuration has been reset to default values.')
+                .addFields({
+                    name: 'Default Settings',
+                    value: '• Enabled: Yes\n• Same-user cooldown: 7 days\n• Daily limit: 1\n• Reason required: Yes\n• Min account age: 7 days\n• Min server time: 3 days\n• Allowed channels: All',
+                    inline: false
+                })
+                .setFooter({ text: 'Reputation System' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error resetting config:', error);
+            await message.reply('❌ An error occurred while resetting configuration.');
+        }
+    },
+
+    /**
      * Show help message
      */
     showHelp(message) {
@@ -1032,7 +1384,7 @@ module.exports = {
         if (isAdmin) {
             embed.addFields({
                 name: '⚙️ Admin Commands',
-                value: '`^rep reset @user` - Reset a user\'s reputation to 0\n`^rep roles <add|remove|list>` - Manage role rewards\n`^rep suspicious` - View suspicious trading patterns',
+                value: '`^rep reset @user` - Reset a user\'s reputation to 0\n`^rep roles <add|remove|list>` - Manage role rewards\n`^rep suspicious` - View suspicious trading patterns\n`^rep config` - Configure reputation system settings',
                 inline: false
             });
         }

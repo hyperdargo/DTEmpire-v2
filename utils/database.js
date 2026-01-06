@@ -289,6 +289,17 @@ class Database {
                 ticket_type: null, // 'support', 'staff', 'bug', 'reports'
                 ticket_counter: 0, // Ticket counter for unique IDs
                 
+                // ========== REPUTATION SYSTEM ==========
+                reputation_enabled: true, // Enable/disable reputation system
+                reputation_cooldown_days: 7, // Same user cooldown (in days)
+                reputation_daily_limit: 1, // Daily reputation limit per user
+                reputation_reason_required: true, // Require reason for giving rep
+                reputation_min_account_age_days: 7, // Minimum account age to give rep
+                reputation_min_server_age_days: 3, // Minimum time in server to give rep
+                reputation_allowed_channels: [], // Empty = all channels allowed
+                reputation_min_reason_length: 5, // Minimum reason length
+                reputation_max_reason_length: 200, // Maximum reason length
+                
                 // ========== VERIFICATION SYSTEM ==========
                 verification_enabled: false,
                 verification_type: 'button', // button, captcha, reaction
