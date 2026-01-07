@@ -45,6 +45,7 @@ const LOTTERY_TIMER_MS = 10 * 60 * 1000; // 10 minutes from first ticket purchas
 const lotteryTimers = new Map(); // guildId -> setTimeout handle
 const lotteryStartTimes = new Map(); // guildId -> timestamp when timer started
 const accumulatedJackpots = new Map(); // guildId -> accumulated jackpot amount
+const lastLotteryResults = new Map(); // guildId -> { timestamp, winningNumber, pot, winnerUserId|null, rolledOver:boolean }
 
 module.exports = {
     name: 'economy',
@@ -87,6 +88,9 @@ module.exports = {
                 break;
             case 'lottery':
                 await lotteryInfo(message, client, db);
+                break;
+            case 'lotteryresult':
+                await lotteryResult(message, client, db);
                 break;
             case 'forcelottery':
                 await forceLottery(message, client, db);
@@ -840,6 +844,56 @@ async function lotteryInfo(message, client, db) {
     await message.reply({ embeds: [embed] });
 }
 
+async function lotteryResult(message, client, db) {
+    const guildId = message.guild.id;
+    const last = lastLotteryResults.get(guildId) || null;
+
+    // Compute current jackpot (includes any rollover + current tickets)
+    const activeTickets = await db.getActiveLotteryTickets(guildId);
+    const accumulated = accumulatedJackpots.get(guildId) || 0;
+    const currentPot = LOTTERY_JACKPOT_BASE + (activeTickets.length * LOTTERY_TICKET_PRICE) + accumulated;
+
+    const embed = new EmbedBuilder()
+        .setColor('#8b5cf6')
+        .setTitle('🎰 Lottery Result')
+        .setFooter({ text: 'Use ^economy lottery to see details and countdown' });
+
+    if (!last) {
+        embed.setDescription('No recent lottery draw found.');
+        embed.addFields(
+            { name: '💰 Current Prize Pool', value: `$${currentPot.toLocaleString()}`, inline: true },
+            { name: '🎟️ Active Tickets', value: `${activeTickets.length}`, inline: true }
+        );
+        return message.reply({ embeds: [embed] });
+    }
+
+    const when = new Date(last.timestamp).toUTCString();
+    const winnerField = last.winnerUserId ? `<@${last.winnerUserId}>` : 'No winner';
+
+    embed.addFields(
+        { name: '🕒 Last Draw (UTC)', value: when, inline: false },
+        { name: '🎯 Winning Number', value: `#${last.winningNumber}`, inline: true },
+        { name: '💰 Last Pot', value: `$${last.pot.toLocaleString()}`, inline: true },
+        { name: '🏆 Winner', value: winnerField, inline: true }
+    );
+
+    if (!last.winnerUserId) {
+        // No winner last time: show rollover info and current pool
+        embed.addFields(
+            { name: '♻️ Rolled Over', value: `$${(accumulated).toLocaleString()}`, inline: true },
+            { name: '💰 Current Prize Pool', value: `$${currentPot.toLocaleString()}`, inline: true },
+            { name: '🎟️ Active Tickets', value: `${activeTickets.length}`, inline: true }
+        );
+    } else {
+        embed.addFields(
+            { name: '💰 Current Prize Pool', value: `$${currentPot.toLocaleString()}`, inline: true },
+            { name: '🎟️ Active Tickets', value: `${activeTickets.length}`, inline: true }
+        );
+    }
+
+    return message.reply({ embeds: [embed] });
+}
+
 async function buyLotteryTicket(message, args, client, db) {
     if (args.length === 0) {
         return message.reply('❌ Usage: `^economy buyticket <number>` (1-100)');
@@ -1022,6 +1076,15 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
             } catch (err) {/* ignore */}
         }
 
+        // Store last result (winner)
+        lastLotteryResults.set(guildId, {
+            timestamp: Date.now(),
+            winningNumber,
+            pot: finalPot,
+            winnerUserId,
+            rolledOver: false
+        });
+
         // Reset accumulated jackpot since someone won
         accumulatedJackpots.delete(guildId);
 
@@ -1037,7 +1100,16 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
     } else {
         // No winner - accumulate the pot for next round
         accumulatedJackpots.set(guildId, finalPot);
-        
+
+        // Store last result (rollover)
+        lastLotteryResults.set(guildId, {
+            timestamp: Date.now(),
+            winningNumber,
+            pot: finalPot,
+            winnerUserId: null,
+            rolledOver: true
+        });
+
         if (embed) {
             embed.addFields({ name: '🎲 No Winner', value: `Winning Number: #${winningNumber}\nNo matching tickets this round.\n💰 Jackpot rolls over: $${finalPot.toLocaleString()} will be added to next round!`, inline: false });
         }
