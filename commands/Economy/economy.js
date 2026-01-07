@@ -37,7 +37,7 @@ const JOBS = [
 ];
 
 const LOTTERY_TICKET_PRICE = 1000;
-const LOTTERY_JACKPOT_BASE = 100000;
+const LOTTERY_JACKPOT_BASE = 10000; // reduced from 100000 to make wins smaller
 const MAX_LOTTERY_TICKETS = 5;
 const LOTTERY_TIMER_MS = 10 * 60 * 1000; // 10 minutes from first ticket purchase
 
@@ -1063,13 +1063,15 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
     const accumulated = accumulatedJackpots.get(guildId) || 0;
     const finalPot = LOTTERY_JACKPOT_BASE + (tickets.length * LOTTERY_TICKET_PRICE) + accumulated;
 
+    // Mark this round as drawn for all tickets (even if no winner)
+    if (typeof db.drawLottery === 'function') {
+        try {
+            await db.drawLottery(guildId, winningNumber);
+        } catch (err) {/* ignore */}
+    }
+
     if (winnerTicket) {
         const winnerUserId = winnerTicket.user_id;
-        if (typeof db.drawLottery === 'function') {
-            try {
-                await db.drawLottery(guildId, winningNumber);
-            } catch (err) {/* ignore */}
-        }
         if (typeof db.payoutLotteryWinner === 'function') {
             try {
                 await db.payoutLotteryWinner(guildId, winnerUserId, finalPot);
