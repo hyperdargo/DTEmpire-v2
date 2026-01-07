@@ -12,6 +12,9 @@ module.exports = {
         const hours = Math.floor(uptime / 3600) % 24;
         const minutes = Math.floor(uptime / 60) % 60;
         
+        // Compute a better user count using guild member counts (cached), not the global users cache
+        const totalUsers = client.guilds.cache.reduce((acc, g) => acc + (g.memberCount || 0), 0);
+
         const embed = new EmbedBuilder()
             .setColor('#0061ff')
             .setTitle('🤖 DTEmpire Bot Information')
@@ -22,7 +25,7 @@ module.exports = {
                 { name: '🔢 Version', value: client.botInfo.version, inline: true },
                 { name: '👨‍💻 Creator', value: client.botInfo.creator, inline: true },
                 { name: '🏰 Servers', value: client.guilds.cache.size.toString(), inline: true },
-                { name: '👥 Users', value: client.users.cache.size.toString(), inline: true },
+                { name: '👥 Users (estimate)', value: totalUsers.toLocaleString(), inline: true },
                 { name: '📊 Commands', value: client.commands.size.toString(), inline: true },
                 { name: '⏰ Uptime', value: `${days}d ${hours}h ${minutes}m`, inline: true },
                 { name: '📡 Ping', value: `${client.ws.ping}ms`, inline: true },
