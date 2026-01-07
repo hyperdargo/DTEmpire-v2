@@ -58,8 +58,8 @@ module.exports = {
                 .setTitle('📅 Ambiguous Date Detected')
                 .setDescription(`Your input \`${when}\` can be interpreted in two ways. Choose the correct format:`)
                 .addFields(
-                    { name: 'MM/DD (Month/Day)', value: optionA ? `UTC: <t:${optionA}:F>\nCountdown: <t:${optionA}:R>` : 'Invalid date', inline: true },
-                    { name: 'DD/MM (Day/Month)', value: optionB ? `UTC: <t:${optionB}:F>\nCountdown: <t:${optionB}:R>` : 'Invalid date', inline: true }
+                    { name: 'MM/DD (Month/Day)', value: optionA ? `UTC: ${formatUtc(optionA)} UTC\nCountdown: <t:${optionA}:R>` : 'Invalid date', inline: true },
+                    { name: 'DD/MM (Day/Month)', value: optionB ? `UTC: ${formatUtc(optionB)} UTC\nCountdown: <t:${optionB}:R>` : 'Invalid date', inline: true }
                 )
                 .setFooter({ text: 'Select a format below • UTC time' });
 
@@ -168,7 +168,7 @@ function parseUTCDate(input) {
 async function postEventEmbed({ message, title, desc, targetChannel, hostId, timestampSec, whenRaw }) {
     const fields = [];
     if (timestampSec) {
-        fields.push({ name: '🕒 When (UTC)', value: `<t:${timestampSec}:F>`, inline: true });
+        fields.push({ name: '🕒 When (UTC)', value: `${formatUtc(timestampSec)} UTC`, inline: true });
         fields.push({ name: '⏳ Countdown', value: `<t:${timestampSec}:R>`, inline: true });
     } else {
         fields.push({ name: '🕒 When', value: whenRaw, inline: true });
@@ -188,4 +188,15 @@ async function postEventEmbed({ message, title, desc, targetChannel, hostId, tim
     if (targetChannel.id !== message.channel.id) {
         await message.reply(`✅ Event posted in ${targetChannel}`);
     }
+}
+
+function formatUtc(timestampSec) {
+    // Returns YYYY-MM-DD HH:mm in UTC for clarity
+    const d = new Date(timestampSec * 1000);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day} ${hh}:${mm}`;
 }
