@@ -1554,7 +1554,7 @@ class Database {
         if (!this.data.repLogs[guildId]) this.data.repLogs[guildId] = [];
         
         const logEntry = {
-            id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            id: `${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
             guild_id: guildId,
             giver_id: giverId,
             receiver_id: receiverId,
