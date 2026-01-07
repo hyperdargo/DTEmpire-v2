@@ -577,7 +577,7 @@ module.exports = {
             await db.updateUserReputation(targetUser.id, message.guild.id, -oldRepValue);
 
             // Check and remove role rewards after reset
-            const roleResult = await repService.checkAndAssignRoles(targetMember, message.guild.id, 0);
+            await repService.checkAndAssignRoles(targetMember, message.guild.id, 0);
 
             // Log the reset action
             if (client.loggingSystem) {
