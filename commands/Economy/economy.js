@@ -965,6 +965,9 @@ async function sellProperty(message, args, client, db) {
 async function lotteryInfo(message, client, db) {
     const guildId = message.guild.id;
     
+    // Ensure DB methods exist
+    ensureAutoLotteryMethods(db);
+    
     // Auto-resume orphaned timer if needed
     await resumeOrphanedTimers(guildId, client, db, message.guild.name);
     
