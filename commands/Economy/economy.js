@@ -107,6 +107,33 @@ function ensureAutoLotteryMethods(db) {
             return Object.values(db.data.autoLottery).filter(s => s.guild_id === guildId && s.enabled);
         };
     }
+
+    // Timer persistence methods
+    if (!db.data.lotteryTimers) db.data.lotteryTimers = {};
+
+    if (typeof db.setLotteryTimerStart !== 'function') {
+        db.setLotteryTimerStart = async function(guildId, startTime) {
+            if (!db.data.lotteryTimers) db.data.lotteryTimers = {};
+            db.data.lotteryTimers[guildId] = { startTime, updatedAt: Date.now() };
+            if (typeof db.save === 'function') db.save();
+        };
+    }
+
+    if (typeof db.getLotteryTimerStart !== 'function') {
+        db.getLotteryTimerStart = async function(guildId) {
+            if (!db.data.lotteryTimers) return null;
+            return db.data.lotteryTimers[guildId] || null;
+        };
+    }
+
+    if (typeof db.clearLotteryTimerStart !== 'function') {
+        db.clearLotteryTimerStart = async function(guildId) {
+            if (db.data.lotteryTimers && db.data.lotteryTimers[guildId]) {
+                delete db.data.lotteryTimers[guildId];
+                if (typeof db.save === 'function') db.save();
+            }
+        };
+    }
 }
 
 async function applyAutoSubscriptions({ guildId, client, db, guildName }) {
