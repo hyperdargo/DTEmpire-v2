@@ -1009,7 +1009,7 @@ async function lotteryInfo(message, client, db) {
 
     embed.setFooter({ text: 'Good luck!' });
     
-    await message.reply({ embeds: [embed] });
+    await message.channel.send({ embeds: [embed] });
 }
 
 async function lotteryResult(message, client, db) {
@@ -1059,7 +1059,7 @@ async function lotteryResult(message, client, db) {
         );
     }
 
-    return message.reply({ embeds: [embed] });
+    return message.channel.send({ embeds: [embed] });
 }
 
 async function buyLotteryTicket(message, args, client, db) {
