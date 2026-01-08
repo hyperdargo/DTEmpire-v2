@@ -923,6 +923,62 @@ class Database {
         );
     }
 
+    // ========== AUTO-LOTTERY SUBSCRIPTIONS ==========
+    async setAutoTicket(userId, guildId, number, enabled = true) {
+        if (!this.data.autoLottery) this.data.autoLottery = {};
+        const key = `auto_${userId}_${guildId}`;
+        this.data.autoLottery[key] = {
+            user_id: userId,
+            guild_id: guildId,
+            number: number,
+            enabled: !!enabled,
+            created_at: Date.now()
+        };
+        this.save();
+        return this.data.autoLottery[key];
+    }
+
+    async getAutoTicket(userId, guildId) {
+        if (!this.data.autoLottery) this.data.autoLottery = {};
+        const key = `auto_${userId}_${guildId}`;
+        return this.data.autoLottery[key] || null;
+    }
+
+    async removeAutoTicket(userId, guildId) {
+        if (!this.data.autoLottery) return false;
+        const key = `auto_${userId}_${guildId}`;
+        if (this.data.autoLottery[key]) {
+            delete this.data.autoLottery[key];
+            this.save();
+            return true;
+        }
+        return false;
+    }
+
+    async getAutoTicketsForGuild(guildId) {
+        if (!this.data.autoLottery) return [];
+        return Object.values(this.data.autoLottery).filter(s => s.guild_id === guildId && s.enabled);
+    }
+
+    // ========== LOTTERY TIMER PERSISTENCE ==========
+    async setLotteryTimerStart(guildId, startTime) {
+        if (!this.data.lotteryTimers) this.data.lotteryTimers = {};
+        this.data.lotteryTimers[guildId] = { startTime, updatedAt: Date.now() };
+        this.save();
+    }
+
+    async getLotteryTimerStart(guildId) {
+        if (!this.data.lotteryTimers) return null;
+        return this.data.lotteryTimers[guildId] || null;
+    }
+
+    async clearLotteryTimerStart(guildId) {
+        if (this.data.lotteryTimers && this.data.lotteryTimers[guildId]) {
+            delete this.data.lotteryTimers[guildId];
+            this.save();
+        }
+    }
+
     // ========== TRANSACTION METHODS ==========
     async addTransaction(userId, guildId, type, amount, details = {}) {
         if (!this.data.transactions) this.data.transactions = {};
