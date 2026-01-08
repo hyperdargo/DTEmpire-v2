@@ -43,6 +43,23 @@ const ROLLOVER_INCREMENT = 10000; // added each rollover round (1x, 2x, 3x ...)
 const MAX_LOTTERY_TICKETS = 5;
 const LOTTERY_TIMER_MS = 10 * 60 * 1000; // 10 minutes from first ticket purchase
 
+// Banking system constants
+const BANK_INTEREST_RATE = 0.01; // 1% daily interest on bank balance
+const FD_INTEREST_RATE = 0.03; // 3% daily interest on fixed deposits (higher rate)
+const LOAN_INTEREST_RATE = 0.05; // 5% monthly interest on loans
+const LOAN_MAX_PERCENT = 0.8; // can borrow up to 80% of property value
+const TRANSACTION_FEE_THRESHOLD = 50000; // fees apply for transactions over this amount
+const TRANSACTION_FEE_PERCENT = 0.02; // 2% fee on large transactions
+const TAX_RATES = {
+    job_salary: 0.10, // 10% tax on job income
+    property_income: 0.08, // 8% tax on property/business income
+    gambling: 0.15, // 15% tax on gambling winnings
+    trading: 0.05, // 5% tax on trading (pay/steal)
+    lottery: 0.20 // 20% tax on lottery winnings
+};
+const TAX_GIVEAWAY_THRESHOLD = 500000; // start giveaway when tax pool reaches this
+const TAX_GIVEAWAY_INCREMENT = 500000; // increase threshold by this each time (500k -> 1M -> 1.5M)
+
 // In-memory timers to auto-draw lottery after the first ticket
 const lotteryTimers = new Map(); // guildId -> setTimeout handle
 const lotteryStartTimes = new Map(); // guildId -> timestamp when timer started
@@ -246,6 +263,15 @@ module.exports = {
             case 'bank':
                 await bankManagement(message, args.slice(1), client, db);
                 break;
+            case 'fd':
+                await fixedDepositCommand(message, args.slice(1), client, db);
+                break;
+            case 'loan':
+                await loanCommand(message, args.slice(1), client, db);
+                break;
+            case 'taxgiveaway':
+                await taxGiveawayCommand(message, args.slice(1), client, db);
+                break;
             case 'leaderboard':
                 await showLeaderboard(message, client, db);
                 break;
@@ -420,9 +446,13 @@ async function workJob(message, client, db) {
     const bonus = Math.floor(Math.random() * baseSalary * 0.3); // Up to 30% bonus
     const totalSalary = baseSalary + bonus;
     
+    // Deduct income tax
+    const incomeTax = await deductIncomeTax(userId, guildId, totalSalary, 'job_salary', db);
+    const salaryAfterTax = totalSalary - incomeTax;
+    
     // Update user economy
     const economy = await db.getUserEconomy(userId, guildId);
-    economy.wallet += totalSalary;
+    economy.wallet += salaryAfterTax;
     economy.experience += 10; // XP for working
     await db.updateUserEconomy(userId, guildId, economy);
     
@@ -458,7 +488,9 @@ async function workJob(message, client, db) {
             { name: 'Job', value: currentJob.name, inline: true },
             { name: 'Base Salary', value: `$${baseSalary.toLocaleString()}`, inline: true },
             { name: 'Bonus', value: `$${bonus.toLocaleString()}`, inline: true },
-            { name: 'Total Earned', value: `$${totalSalary.toLocaleString()}`, inline: false },
+            { name: 'Gross Income', value: `$${totalSalary.toLocaleString()}`, inline: true },
+            { name: '📊 Income Tax (10%)', value: `-$${incomeTax.toLocaleString()}`, inline: true },
+            { name: 'Net Income', value: `$${salaryAfterTax.toLocaleString()}`, inline: true },
             { name: 'XP Gained', value: '10 XP', inline: true },
             { name: 'Next Work', value: '8 hours', inline: true }
         )
@@ -1454,6 +1486,9 @@ async function bankManagement(message, args, client, db) {
         const economy = await db.getUserEconomy(userId, guildId);
         const properties = await db.getUserProperties(userId, guildId);
         
+        // Apply any pending interest
+        const pendingInterest = await applyBankInterest(userId, guildId, db);
+        
         // Calculate daily income
         let dailyIncome = 0;
         properties.houses.forEach(house => {
@@ -1481,9 +1516,10 @@ async function bankManagement(message, args, client, db) {
                 { name: '💰 Total', value: `$${economy.total.toLocaleString()}`, inline: true },
                 { name: '📈 Daily Income', value: `$${dailyIncome.toLocaleString()}`, inline: true },
                 { name: '🏘️ Property Value', value: `$${properties.total_property_value.toLocaleString()}`, inline: true },
-                { name: '💰 Net Worth', value: `$${(economy.total + properties.total_property_value).toLocaleString()}`, inline: true }
+                { name: '💰 Net Worth', value: `$${(economy.total + properties.total_property_value).toLocaleString()}`, inline: true },
+                { name: '💸 Bank Interest (1% daily)', value: `Accrued: $${pendingInterest.toLocaleString()}`, inline: false }
             )
-            .setFooter({ text: 'Use: ^economy bank deposit/withdraw/collect' });
+            .setFooter({ text: 'Use: ^economy bank deposit/withdraw/collect | New: fd (fixed deposits), loan (loans)' });
         
         return message.reply({ embeds: [embed] });
     }
@@ -1714,6 +1750,480 @@ async function collectRent(message, client, db) {
     await message.reply({ embeds: [embed] });
 }
 
+// ========== INTEREST & BANKING FEATURES ==========
+
+async function applyBankInterest(userId, guildId, db) {
+    const economy = await db.getUserEconomy(userId, guildId);
+    const lastInterestTime = economy.last_interest_time || Date.now();
+    const now = Date.now();
+    const daysPassed = Math.floor((now - lastInterestTime) / (24 * 60 * 60 * 1000));
+    
+    if (daysPassed > 0 && economy.bank > 0) {
+        const interest = Math.floor(economy.bank * BANK_INTEREST_RATE * daysPassed);
+        economy.bank += interest;
+        economy.last_interest_time = now;
+        await db.updateUserEconomy(userId, guildId, economy);
+        return interest;
+    }
+    return 0;
+}
+
+async function applyFixedDepositInterest(userId, guildId, db) {
+    if (!db.data.fixedDeposits) return 0;
+    
+    const fdKey = `fd_${userId}_${guildId}`;
+    const fd = db.data.fixedDeposits[fdKey];
+    
+    if (!fd || fd.amount <= 0 || fd.locked_until > Date.now()) {
+        return 0; // No FD or still locked
+    }
+    
+    const daysPassed = Math.floor((Date.now() - fd.created_at) / (24 * 60 * 60 * 1000));
+    if (daysPassed > 0) {
+        const interest = Math.floor(fd.amount * FD_INTEREST_RATE * daysPassed);
+        const totalAmount = fd.amount + interest;
+        
+        const economy = await db.getUserEconomy(userId, guildId);
+        economy.bank += totalAmount;
+        await db.updateUserEconomy(userId, guildId, economy);
+        
+        delete db.data.fixedDeposits[fdKey];
+        if (typeof db.save === 'function') db.save();
+        
+        return interest;
+    }
+    return 0;
+}
+
+async function deductIncomeTax(userId, guildId, income, incomeType, db) {
+    const taxRate = TAX_RATES[incomeType] || 0.05;
+    const taxAmount = Math.floor(income * taxRate);
+    
+    if (!db.data.serverTaxPool) db.data.serverTaxPool = {};
+    if (!db.data.serverTaxPool[guildId]) {
+        db.data.serverTaxPool[guildId] = { amount: 0, next_giveaway_threshold: TAX_GIVEAWAY_THRESHOLD };
+    }
+    
+    db.data.serverTaxPool[guildId].amount += taxAmount;
+    
+    // Check if we've reached giveaway threshold
+    const taxPool = db.data.serverTaxPool[guildId];
+    if (taxPool.amount >= taxPool.next_giveaway_threshold) {
+        taxPool.giveaway_pending = true;
+        taxPool.pending_pool = taxPool.amount;
+        taxPool.amount = 0; // Reset for next cycle
+        taxPool.next_giveaway_threshold += TAX_GIVEAWAY_INCREMENT;
+    }
+    
+    if (typeof db.save === 'function') db.save();
+    
+    return taxAmount;
+}
+
+async function deductTransactionFee(amount, db) {
+    if (amount > TRANSACTION_FEE_THRESHOLD) {
+        return Math.floor(amount * TRANSACTION_FEE_PERCENT);
+    }
+    return 0;
+}
+
+async function fixedDepositCommand(message, args, client, db) {
+    const subCommand = args[0]?.toLowerCase();
+    const userId = message.author.id;
+    const guildId = message.guild.id;
+    
+    if (!subCommand || !['create', 'view', 'withdraw'].includes(subCommand)) {
+        return message.reply('❌ Usage: `^economy fd <create|view|withdraw>` <amount> <days>');
+    }
+    
+    if (subCommand === 'create') {
+        const amount = parseInt(args[1]);
+        const days = parseInt(args[2]);
+        
+        if (isNaN(amount) || isNaN(days) || amount <= 0 || days <= 0) {
+            return message.reply('❌ Usage: `^economy fd create <amount> <days>`');
+        }
+        
+        if (days > 365) {
+            return message.reply('❌ Maximum FD period is 365 days.');
+        }
+        
+        const economy = await db.getUserEconomy(userId, guildId);
+        if (economy.bank < amount) {
+            return message.reply(`❌ You only have $${economy.bank.toLocaleString()} in your bank.`);
+        }
+        
+        economy.bank -= amount;
+        await db.updateUserEconomy(userId, guildId, economy);
+        
+        if (!db.data.fixedDeposits) db.data.fixedDeposits = {};
+        const fdKey = `fd_${userId}_${guildId}`;
+        
+        const lockedUntil = Date.now() + (days * 24 * 60 * 60 * 1000);
+        const expectedInterest = Math.floor(amount * FD_INTEREST_RATE * days);
+        
+        db.data.fixedDeposits[fdKey] = {
+            user_id: userId,
+            guild_id: guildId,
+            amount: amount,
+            created_at: Date.now(),
+            locked_until: lockedUntil,
+            days: days,
+            expected_interest: expectedInterest
+        };
+        
+        if (typeof db.save === 'function') db.save();
+        
+        const embed = new EmbedBuilder()
+            .setColor('#4169E1')
+            .setTitle('💎 Fixed Deposit Created')
+            .addFields(
+                { name: 'Amount Locked', value: `$${amount.toLocaleString()}`, inline: true },
+                { name: 'Period', value: `${days} days`, inline: true },
+                { name: 'Interest Rate', value: `${(FD_INTEREST_RATE * 100)}% daily`, inline: true },
+                { name: 'Expected Returns', value: `$${expectedInterest.toLocaleString()}`, inline: true },
+                { name: 'Total Maturity', value: `$${(amount + expectedInterest).toLocaleString()}`, inline: true },
+                { name: 'Unlock Date', value: `<t:${Math.floor(lockedUntil / 1000)}:F>`, inline: false }
+            );
+        
+        await message.reply({ embeds: [embed] });
+    } else if (subCommand === 'view') {
+        if (!db.data.fixedDeposits) {
+            return message.reply('❌ You have no active fixed deposits.');
+        }
+        
+        const fdKey = `fd_${userId}_${guildId}`;
+        const fd = db.data.fixedDeposits[fdKey];
+        
+        if (!fd) {
+            return message.reply('❌ You have no active fixed deposits.');
+        }
+        
+        const timeRemaining = fd.locked_until - Date.now();
+        const daysLeft = Math.ceil(timeRemaining / (24 * 60 * 60 * 1000));
+        
+        const embed = new EmbedBuilder()
+            .setColor('#4169E1')
+            .setTitle('💎 Fixed Deposit Info')
+            .addFields(
+                { name: 'Locked Amount', value: `$${fd.amount.toLocaleString()}`, inline: true },
+                { name: 'Days Left', value: `${daysLeft}`, inline: true },
+                { name: 'Expected Interest', value: `$${fd.expected_interest.toLocaleString()}`, inline: true },
+                { name: 'Maturity Amount', value: `$${(fd.amount + fd.expected_interest).toLocaleString()}`, inline: false }
+            );
+        
+        await message.reply({ embeds: [embed] });
+    } else if (subCommand === 'withdraw') {
+        if (!db.data.fixedDeposits) {
+            return message.reply('❌ You have no active fixed deposits.');
+        }
+        
+        const fdKey = `fd_${userId}_${guildId}`;
+        const fd = db.data.fixedDeposits[fdKey];
+        
+        if (!fd) {
+            return message.reply('❌ You have no active fixed deposits.');
+        }
+        
+        if (fd.locked_until > Date.now()) {
+            const timeRemaining = fd.locked_until - Date.now();
+            const daysLeft = Math.ceil(timeRemaining / (24 * 60 * 60 * 1000));
+            return message.reply(`⏰ Your FD is locked for ${daysLeft} more days. Come back when it matures.`);
+        }
+        
+        const interest = await applyFixedDepositInterest(userId, guildId, db);
+        
+        const embed = new EmbedBuilder()
+            .setColor('#00ff00')
+            .setTitle('💎 FD Withdrawn')
+            .addFields(
+                { name: 'Principal', value: `$${fd.amount.toLocaleString()}`, inline: true },
+                { name: 'Interest Earned', value: `$${interest.toLocaleString()}`, inline: true },
+                { name: 'Total Received', value: `$${(fd.amount + interest).toLocaleString()}`, inline: true }
+            );
+        
+        await message.reply({ embeds: [embed] });
+    }
+}
+
+async function loanCommand(message, args, client, db) {
+    const subCommand = args[0]?.toLowerCase();
+    const userId = message.author.id;
+    const guildId = message.guild.id;
+    
+    if (!subCommand || !['apply', 'repay', 'status'].includes(subCommand)) {
+        return message.reply('❌ Usage: `^economy loan <apply|repay|status>` [amount]');
+    }
+    
+    if (subCommand === 'apply') {
+        const amount = parseInt(args[1]);
+        
+        if (isNaN(amount) || amount <= 0) {
+            return message.reply('❌ Please specify a valid loan amount.');
+        }
+        
+        const properties = await db.getUserProperties(userId, guildId);
+        const maxLoanAmount = Math.floor(properties.total_property_value * LOAN_MAX_PERCENT);
+        
+        if (amount > maxLoanAmount) {
+            return message.reply(`❌ You can borrow up to $${maxLoanAmount.toLocaleString()} based on your property value of $${properties.total_property_value.toLocaleString()}.`);
+        }
+        
+        if (!db.data.loans) db.data.loans = {};
+        const loanKey = `loan_${userId}_${guildId}`;
+        
+        if (db.data.loans[loanKey] && db.data.loans[loanKey].amount > 0) {
+            return message.reply('❌ You already have an active loan. Repay it first.');
+        }
+        
+        const economy = await db.getUserEconomy(userId, guildId);
+        economy.wallet += amount;
+        await db.updateUserEconomy(userId, guildId, economy);
+        
+        db.data.loans[loanKey] = {
+            user_id: userId,
+            guild_id: guildId,
+            amount: amount,
+            taken_at: Date.now(),
+            interest_rate: LOAN_INTEREST_RATE,
+            repaid: 0
+        };
+        
+        if (typeof db.save === 'function') db.save();
+        
+        const embed = new EmbedBuilder()
+            .setColor('#ff9900')
+            .setTitle('🏦 Loan Approved')
+            .addFields(
+                { name: 'Loan Amount', value: `$${amount.toLocaleString()}`, inline: true },
+                { name: 'Interest Rate', value: `${(LOAN_INTEREST_RATE * 100)}% monthly`, inline: true },
+                { name: 'Status', value: 'Received to wallet', inline: false },
+                { name: '⚠️ Note', value: 'Your properties are locked until loan is repaid.', inline: false }
+            );
+        
+        await message.reply({ embeds: [embed] });
+    } else if (subCommand === 'repay') {
+        const repayAmount = parseInt(args[1]);
+        
+        if (isNaN(repayAmount) || repayAmount <= 0) {
+            return message.reply('❌ Please specify a repayment amount.');
+        }
+        
+        if (!db.data.loans) {
+            return message.reply('❌ You have no active loans.');
+        }
+        
+        const loanKey = `loan_${userId}_${guildId}`;
+        const loan = db.data.loans[loanKey];
+        
+        if (!loan || loan.amount <= 0) {
+            return message.reply('❌ You have no active loans.');
+        }
+        
+        const economy = await db.getUserEconomy(userId, guildId);
+        
+        if (economy.wallet < repayAmount) {
+            return message.reply(`❌ You only have $${economy.wallet.toLocaleString()} in your wallet.`);
+        }
+        
+        const monthsElapsed = Math.floor((Date.now() - loan.taken_at) / (30 * 24 * 60 * 60 * 1000));
+        const totalInterest = Math.floor(loan.amount * LOAN_INTEREST_RATE * monthsElapsed);
+        const totalDue = loan.amount + totalInterest;
+        const remaining = Math.max(0, totalDue - loan.repaid);
+        
+        if (repayAmount > remaining) {
+            return message.reply(`❌ You only owe $${remaining.toLocaleString()}. You can't overpay.`);
+        }
+        
+        economy.wallet -= repayAmount;
+        loan.repaid += repayAmount;
+        
+        const isFullyPaid = loan.repaid >= totalDue;
+        if (isFullyPaid) {
+            delete db.data.loans[loanKey];
+        }
+        
+        await db.updateUserEconomy(userId, guildId, economy);
+        if (typeof db.save === 'function') db.save();
+        
+        const embed = new EmbedBuilder()
+            .setColor('#00ff00')
+            .setTitle('💳 Loan Repayment Processed')
+            .addFields(
+                { name: 'Amount Paid', value: `$${repayAmount.toLocaleString()}`, inline: true },
+                { name: 'Remaining', value: isFullyPaid ? '✅ Fully Paid' : `$${(remaining - repayAmount).toLocaleString()}`, inline: true },
+                { name: 'Status', value: isFullyPaid ? '✅ Loan Cleared - Properties Unlocked' : '⏳ Active Loan', inline: false }
+            );
+        
+        await message.reply({ embeds: [embed] });
+    } else if (subCommand === 'status') {
+        if (!db.data.loans) {
+            return message.reply('❌ You have no active loans.');
+        }
+        
+        const loanKey = `loan_${userId}_${guildId}`;
+        const loan = db.data.loans[loanKey];
+        
+        if (!loan || loan.amount <= 0) {
+            return message.reply('❌ You have no active loans.');
+        }
+        
+        const monthsElapsed = Math.floor((Date.now() - loan.taken_at) / (30 * 24 * 60 * 60 * 1000));
+        const totalInterest = Math.floor(loan.amount * LOAN_INTEREST_RATE * monthsElapsed);
+        const totalDue = loan.amount + totalInterest;
+        const remaining = Math.max(0, totalDue - loan.repaid);
+        
+        const embed = new EmbedBuilder()
+            .setColor('#ff9900')
+            .setTitle('🏦 Loan Status')
+            .addFields(
+                { name: 'Principal', value: `$${loan.amount.toLocaleString()}`, inline: true },
+                { name: 'Months Elapsed', value: `${monthsElapsed}`, inline: true },
+                { name: 'Total Interest', value: `$${totalInterest.toLocaleString()}`, inline: true },
+                { name: 'Total Due', value: `$${totalDue.toLocaleString()}`, inline: true },
+                { name: 'Already Paid', value: `$${loan.repaid.toLocaleString()}`, inline: true },
+                { name: 'Remaining Balance', value: `$${remaining.toLocaleString()}`, inline: true },
+                { name: '⚠️ Status', value: 'Properties are locked until fully repaid', inline: false }
+            );
+        
+        await message.reply({ embeds: [embed] });
+    }
+}
+
+async function taxGiveawayCommand(message, args, client, db) {
+    const guildId = message.guild.id;
+    const subCommand = args[0]?.toLowerCase();
+    
+    // Admin check
+    if (!message.member.permissions.has('MANAGE_GUILD')) {
+        return message.reply('❌ Only server administrators can manage tax giveaways.');
+    }
+    
+    if (!subCommand || !['setchannel', 'status', 'trigger'].includes(subCommand)) {
+        return message.reply('❌ Usage: `^economy taxgiveaway <setchannel|status|trigger>` [#channel]');
+    }
+    
+    if (!db.data.serverTaxPool) db.data.serverTaxPool = {};
+    if (!db.data.serverTaxPool[guildId]) {
+        db.data.serverTaxPool[guildId] = { amount: 0, next_giveaway_threshold: TAX_GIVEAWAY_THRESHOLD };
+    }
+    
+    if (subCommand === 'setchannel') {
+        const channel = message.mentions.channels.first();
+        
+        if (!channel) {
+            return message.reply('❌ Please mention a channel: `^economy taxgiveaway setchannel #channel`');
+        }
+        
+        db.data.serverTaxPool[guildId].giveaway_channel = channel.id;
+        if (typeof db.save === 'function') db.save();
+        
+        const embed = new EmbedBuilder()
+            .setColor('#00ff00')
+            .setTitle('✅ Tax Giveaway Channel Set')
+            .setDescription(`All tax collection giveaways will be announced in ${channel.toString()}.`)
+            .addFields(
+                { name: 'Threshold', value: `$${db.data.serverTaxPool[guildId].next_giveaway_threshold.toLocaleString()}`, inline: true }
+            );
+        
+        await message.reply({ embeds: [embed] });
+    } else if (subCommand === 'status') {
+        const taxPool = db.data.serverTaxPool[guildId];
+        const embed = new EmbedBuilder()
+            .setColor('#0099ff')
+            .setTitle('📊 Tax Giveaway Status')
+            .addFields(
+                { name: 'Current Tax Pool', value: `$${taxPool.amount.toLocaleString()}`, inline: true },
+                { name: 'Next Giveaway Threshold', value: `$${taxPool.next_giveaway_threshold.toLocaleString()}`, inline: true },
+                { name: 'Progress', value: `${Math.floor((taxPool.amount / taxPool.next_giveaway_threshold) * 100)}%`, inline: true },
+                { name: 'Giveaway Channel', value: taxPool.giveaway_channel ? `<#${taxPool.giveaway_channel}>` : '❌ Not Set', inline: false }
+            );
+        
+        if (taxPool.giveaway_pending) {
+            embed.addFields({ name: '🎁 Pending Giveaway', value: `$${taxPool.pending_pool.toLocaleString()} waiting to be triggered`, inline: false });
+        }
+        
+        await message.reply({ embeds: [embed] });
+    } else if (subCommand === 'trigger') {
+        const taxPool = db.data.serverTaxPool[guildId];
+        
+        if (!taxPool.giveaway_pending) {
+            return message.reply('❌ No pending tax giveaway. Taxes must reach the threshold first.');
+        }
+        
+        if (!taxPool.giveaway_channel) {
+            return message.reply('❌ Giveaway channel not set. Use: `^economy taxgiveaway setchannel #channel`');
+        }
+        
+        try {
+            const giveawayChannel = await client.channels.fetch(taxPool.giveaway_channel);
+            const giveawayAmount = taxPool.pending_pool;
+            
+            const embed = new EmbedBuilder()
+                .setColor('#FFD700')
+                .setTitle('🎁 TAX COLLECTION GIVEAWAY!')
+                .setDescription(`React with 🎉 within 30 seconds to participate and win!`)
+                .addFields(
+                    { name: '💰 Prize Pool', value: `$${giveawayAmount.toLocaleString()}`, inline: true },
+                    { name: '⏱️ Duration', value: '30 seconds', inline: true },
+                    { name: '🏆 Winner', value: 'Will be randomly selected from reactions', inline: false }
+                )
+                .setFooter({ text: 'Tax collected from server transactions' });
+            
+            const giveawayMsg = await giveawayChannel.send({ embeds: [embed] });
+            await giveawayMsg.react('🎉');
+            
+            // Collect reactions for 30 seconds
+            const filter = (reaction, user) => reaction.emoji.name === '🎉' && !user.bot;
+            const collected = await giveawayMsg.awaitReactions({ filter, time: 30000, max: 100 });
+            
+            const reactions = giveawayMsg.reactions.cache.get('🎉');
+            if (!reactions || reactions.count <= 1) {
+                // No winners, keep the pot
+                const resultEmbed = new EmbedBuilder()
+                    .setColor('#FF6347')
+                    .setTitle('❌ No Winners')
+                    .setDescription(`No one reacted in time. The giveaway pool of $${giveawayAmount.toLocaleString()} will carry over to the next threshold.`)
+                    .addFields(
+                        { name: 'Next Threshold', value: `$${taxPool.next_giveaway_threshold.toLocaleString()}`, inline: true }
+                    );
+                
+                taxPool.giveaway_pending = false;
+                taxPool.amount += giveawayAmount; // Carry over
+                
+                await giveawayChannel.send({ embeds: [resultEmbed] });
+            } else {
+                // Select random winner
+                const users = (await reactions.users.fetch()).filter(u => !u.bot);
+                const winner = users.random();
+                
+                // Add money to winner
+                const winnerEconomy = await db.getUserEconomy(winner.id, guildId);
+                winnerEconomy.wallet += giveawayAmount;
+                await db.updateUserEconomy(winner.id, guildId, winnerEconomy);
+                
+                const resultEmbed = new EmbedBuilder()
+                    .setColor('#00FF00')
+                    .setTitle('🎊 GIVEAWAY WINNER!')
+                    .setDescription(`🏆 ${winner.toString()} has won the tax collection giveaway!`)
+                    .addFields(
+                        { name: '💰 Prize', value: `$${giveawayAmount.toLocaleString()}`, inline: true },
+                        { name: '✅ Status', value: 'Money has been sent to winner wallet', inline: true }
+                    );
+                
+                taxPool.giveaway_pending = false;
+                
+                await giveawayChannel.send({ embeds: [resultEmbed] });
+            }
+            
+            if (typeof db.save === 'function') db.save();
+        } catch (error) {
+            console.error('Giveaway error:', error);
+            return message.reply('❌ Error triggering giveaway. Please check channel permissions.');
+        }
+    }
+}
+
 async function showLeaderboard(message, client, db) {
     const guildId = message.guild.id;
     
@@ -1866,12 +2376,15 @@ async function showHelp(message) {
         .setDescription('All commands for the advanced economy system')
         .addFields(
             { name: '📊 Dashboard', value: '`^economy` - View your economy dashboard', inline: false },
-            { name: '💼 Jobs', value: '`^economy jobs` - View available jobs\n`^economy apply <job_id>` - Apply for a job\n`^economy work` - Work and earn salary', inline: false },
+            { name: '💼 Jobs', value: '`^economy jobs` - View available jobs\n`^economy apply <job_id>` - Apply for a job\n`^economy work` - Work and earn salary (with 10% income tax)', inline: false },
             { name: '📅 Daily Check-In', value: '`^economy daily` / `^economy checkin` / `^economy streak` - Claim daily rewards and view your streak (UTC, 24h cooldown)', inline: false },
             { name: '🏘️ Properties', value: '`^economy properties` - View your properties\n`^economy buy` - View available properties\n`^economy buy <type> <id>` - Buy a property\n`^economy sell <type> <index>` - Sell a property', inline: false },
-            { name: '🏦 Bank', value: '`^economy bank` - View bank balance\n`^economy bank deposit <amount/all>` - Deposit money\n`^economy bank withdraw <amount/all>` - Withdraw money\n`^economy bank collect` - Collect daily rent', inline: false },
-            { name: '🎫 Lottery', value: '`^economy lottery` - View lottery info\n`^economy buyticket <number>` - Buy lottery ticket (1-100)\n`^economy lotteryresult` - View last draw and current prize pool\n`^economy forcelottery` - Admin: force draw now\n`^economy autoticket <number>` - Auto-buy your number every round (2k/round)\n`^economy cancelautoticket` - Cancel auto-ticket\n`^economy autoticketstatus` - View auto-ticket status\nDraw starts on the first ticket and runs 10 minutes later. If no one wins, the jackpot rolls over and accumulates (+10k per rollover).', inline: false },
-            { name: '🎮 Games & Activities', value: '`^economy steal @user` - Steal money (50% success, 1h cooldown)\n`^economy pay @user <amount>` - Send money to others\n`^economy race <amount>` - Horse race betting (3x)\n`^economy football <amount> <red/blue>` - Team match betting\n`^economy gamble <amount>` - Test your luck (2x)', inline: false },
+            { name: '🏦 Bank & Interest', value: '`^economy bank` - View bank balance (earns 1% daily interest)\n`^economy bank deposit <amount/all>` - Deposit money\n`^economy bank withdraw <amount/all>` - Withdraw money\n`^economy bank collect` - Collect daily rent', inline: false },
+            { name: '💎 Fixed Deposits (FD)', value: '`^economy fd create <amount> <days>` - Lock funds for higher interest (3% daily)\n`^economy fd view` - View your FD\n`^economy fd withdraw` - Withdraw when matured (max 365 days)', inline: false },
+            { name: '💳 Loans', value: '`^economy loan apply <amount>` - Borrow up to 80% of property value (5% monthly interest)\n`^economy loan repay <amount>` - Repay loan EMI\n`^economy loan status` - View loan details (properties locked until paid)', inline: false },
+            { name: '🎫 Lottery', value: '`^economy lottery` - View lottery info\n`^economy buyticket <number>` - Buy lottery ticket (1-100)\n`^economy lotteryresult` - View last draw and current prize pool\n`^economy forcelottery` - Admin: force draw now\n`^economy autoticket <number>` - Auto-buy your number every round (2k/round)\n`^economy cancelautoticket` - Cancel auto-ticket\n`^economy autoticketstatus` - View auto-ticket status\nDraw starts on the first ticket and runs 10 minutes later. If no one wins, the jackpot rolls over and accumulates (+10k per rollover). Lottery winnings: 20% tax.', inline: false },
+            { name: '🎮 Games & Activities', value: '`^economy steal @user` - Steal money (50% success, 1h cooldown, 5% tax on income)\n`^economy pay @user <amount>` - Send money to others (2% transaction fee for large transfers, 5% tax)\n`^economy race <amount>` - Horse race betting (3x)\n`^economy football <amount> <red/blue>` - Team match betting\n`^economy gamble <amount>` - Test your luck (2x, 15% tax on winnings)', inline: false },
+            { name: '📊 Taxes & Giveaways', value: '`^economy taxgiveaway setchannel #channel` - Admin: set tax giveaway channel\n`^economy taxgiveaway status` - View tax pool and giveaway threshold\n`^economy taxgiveaway trigger` - Admin: start giveaway when threshold reached\nEvery 500k collected in taxes auto-triggers a 30-second giveaway (winner takes all!)', inline: false },
             { name: '📊 Leaderboards', value: '`^economy leaderboard` - View top 10 richest players', inline: false },
             { name: '👤 Profile', value: '`^economy profile [@user]` - View economy profile', inline: false }
         )
@@ -1981,7 +2494,27 @@ async function stealMoney(message, client, db) {
 
         userEconomy.wallet -= fineAmount;
         await db.updateUserEconomy(userId, guildId, userEconomy);
-        await db.addTransaction(userId, guildId, 'steal_failed', -fineAmount);
+        
+        // Add fine to tax pool (penalty/fine goes to server)
+        if (!db.data.serverTaxPool) db.data.serverTaxPool = {};
+        if (!db.data.serverTaxPool[guildId]) {
+            db.data.serverTaxPool[guildId] = { amount: 0, next_giveaway_threshold: TAX_GIVEAWAY_THRESHOLD };
+        }
+        
+        db.data.serverTaxPool[guildId].amount += fineAmount;
+        
+        // Check if we've reached giveaway threshold
+        const taxPool = db.data.serverTaxPool[guildId];
+        if (taxPool.amount >= taxPool.next_giveaway_threshold) {
+            taxPool.giveaway_pending = true;
+            taxPool.pending_pool = taxPool.amount;
+            taxPool.amount = 0; // Reset for next cycle
+            taxPool.next_giveaway_threshold += TAX_GIVEAWAY_INCREMENT;
+        }
+        
+        if (typeof db.save === 'function') db.save();
+        
+        await db.addTransaction(userId, guildId, 'steal_failed', -fineAmount, { fine_to_pool: true });
 
         // Set cooldown
         timestamps.set(userId, now);
@@ -1989,11 +2522,12 @@ async function stealMoney(message, client, db) {
         const embed = new EmbedBuilder()
             .setColor('#ff0000')
             .setTitle('🚨 Steal Failed!')
-            .setDescription('You got caught trying to steal!')
+            .setDescription('You got caught trying to steal! Fine goes to server tax pool.')
             .addFields(
-                { name: '⚖️ Fine', value: `$${fineAmount.toLocaleString()}`, inline: true },
+                { name: '⚖️ Fine (Penalty)', value: `$${fineAmount.toLocaleString()}`, inline: true },
                 { name: '💼 Your Balance', value: `$${userEconomy.wallet.toLocaleString()}`, inline: true },
-                { name: '⏰ Next Attempt', value: '1 hour', inline: true }
+                { name: '⏰ Next Attempt', value: '1 hour', inline: true },
+                { name: '📊 Tax Pool', value: `Fine added to server giveaway pool!`, inline: false }
             )
             .setFooter({ text: 'Better luck next time!' });
 
@@ -2031,15 +2565,25 @@ async function payMoney(message, args, client, db) {
         return message.reply(`❌ You don't have enough money! You have $${userEconomy.wallet.toLocaleString()}.`);
     }
     
-    // Transfer money
-    userEconomy.wallet -= amount;
+    // Calculate transaction fee
+    const transactionFee = await deductTransactionFee(amount, db);
+    const incomeTax = await deductIncomeTax(userId, guildId, amount, 'trading', db);
+    
+    // Transfer money (target receives full amount, sender pays fee + tax)
+    const totalCost = amount + transactionFee + incomeTax;
+    
+    if (userEconomy.wallet < totalCost) {
+        return message.reply(`❌ You need $${totalCost.toLocaleString()} to complete this payment (amount + fees + tax). You have $${userEconomy.wallet.toLocaleString()}.`);
+    }
+    
+    userEconomy.wallet -= totalCost;
     targetEconomy.wallet += amount;
     
     await db.updateUserEconomy(userId, guildId, userEconomy);
     await db.updateUserEconomy(targetUser.id, guildId, targetEconomy);
     
     // Log transactions
-    await db.addTransaction(userId, guildId, 'pay_sent', -amount, { recipient: targetUser.id });
+    await db.addTransaction(userId, guildId, 'pay_sent', -totalCost, { recipient: targetUser.id, fee: transactionFee, tax: incomeTax });
     await db.addTransaction(targetUser.id, guildId, 'pay_received', amount, { sender: userId });
     
     const embed = new EmbedBuilder()
@@ -2048,7 +2592,10 @@ async function payMoney(message, args, client, db) {
         .setDescription(`You sent money to ${targetUser.username}`)
         .addFields(
             { name: '💵 Amount', value: `$${amount.toLocaleString()}`, inline: true },
-            { name: '💼 Your New Balance', value: `$${userEconomy.wallet.toLocaleString()}`, inline: true },
+            { name: '📊 Transaction Fee (2%)', value: `$${transactionFee.toLocaleString()}`, inline: true },
+            { name: '💼 Income Tax (5%)', value: `$${incomeTax.toLocaleString()}`, inline: true },
+            { name: '💸 Total Paid', value: `$${totalCost.toLocaleString()}`, inline: true },
+            { name: '✅ Your New Balance', value: `$${userEconomy.wallet.toLocaleString()}`, inline: true },
             { name: '📤 Recipient', value: targetUser.username, inline: true }
         );
     
