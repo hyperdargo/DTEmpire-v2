@@ -1,4 +1,4 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, PermissionsBitField } = require('discord.js');
 
 // Game configuration
 const PROPERTIES = {
@@ -48,6 +48,8 @@ const BANK_INTEREST_RATE = 0.01; // 1% daily interest on bank balance
 const FD_INTEREST_RATE = 0.03; // 3% daily interest on fixed deposits (higher rate)
 const LOAN_INTEREST_RATE = 0.05; // 5% monthly interest on loans
 const LOAN_MAX_PERCENT = 0.8; // can borrow up to 80% of property value
+const LOAN_DEFAULT_DAYS = 7; // auto-default after 7 days
+const LOAN_GARNISH_RATE = 0.2; // 20% of net salary auto-applied to loans
 const TRANSACTION_FEE_THRESHOLD = 50000; // fees apply for transactions over this amount
 const TRANSACTION_FEE_PERCENT = 0.02; // 2% fee on large transactions
 const TAX_RATES = {
@@ -422,6 +424,9 @@ async function workJob(message, client, db) {
     const userId = message.author.id;
     const guildId = message.guild.id;
     
+    // Check for loan default before proceeding
+    const defaultInfo = await handleLoanDefault(userId, guildId, db);
+    
     // Get user job
     const job = await db.getUserJob(userId, guildId);
     
@@ -450,9 +455,37 @@ async function workJob(message, client, db) {
     const incomeTax = await deductIncomeTax(userId, guildId, totalSalary, 'job_salary', db);
     const salaryAfterTax = totalSalary - incomeTax;
     
-    // Update user economy
     const economy = await db.getUserEconomy(userId, guildId);
-    economy.wallet += salaryAfterTax;
+    
+    // Auto-garnish a portion of salary to repay loans
+    let garnishPaid = 0;
+    let loanRemaining = null;
+    let loanDaysLeft = null;
+    if (db.data && db.data.loans) {
+        const loanKey = `loan_${userId}_${guildId}`;
+        const loan = db.data.loans[loanKey];
+        if (loan && loan.amount > 0) {
+            const monthsElapsed = Math.floor((Date.now() - loan.taken_at) / (30 * 24 * 60 * 60 * 1000));
+            const totalInterest = Math.floor(loan.amount * LOAN_INTEREST_RATE * monthsElapsed);
+            const totalDue = loan.amount + totalInterest;
+            const remaining = Math.max(0, totalDue - loan.repaid);
+            loanDaysLeft = Math.max(0, LOAN_DEFAULT_DAYS - Math.floor((Date.now() - loan.taken_at) / (24 * 60 * 60 * 1000)));
+            const garnishBase = Math.floor(salaryAfterTax * LOAN_GARNISH_RATE);
+            garnishPaid = Math.min(remaining, garnishBase);
+            
+            if (garnishPaid > 0) {
+                loan.repaid += garnishPaid;
+                if (loan.repaid >= totalDue) {
+                    delete db.data.loans[loanKey];
+                }
+                if (typeof db.save === 'function') db.save();
+                loanRemaining = Math.max(0, totalDue - loan.repaid);
+            }
+        }
+    }
+    
+    const takeHome = salaryAfterTax - garnishPaid;
+    economy.wallet += takeHome;
     economy.experience += 10; // XP for working
     await db.updateUserEconomy(userId, guildId, economy);
     
@@ -477,8 +510,18 @@ async function workJob(message, client, db) {
     // Log transaction
     await db.addTransaction(userId, guildId, 'work', totalSalary, {
         job: job.job_type,
-        bonus: bonus
+        bonus: bonus,
+        tax: incomeTax,
+        loan_payment: garnishPaid
     });
+
+    if (garnishPaid > 0) {
+        await db.addTransaction(userId, guildId, 'loan_payment_garnish', -garnishPaid, {
+            source: 'work',
+            loan_remaining: loanRemaining,
+            days_until_default: loanDaysLeft
+        });
+    }
     
     const embed = new EmbedBuilder()
         .setColor('#00ff00')
@@ -490,11 +533,24 @@ async function workJob(message, client, db) {
             { name: 'Bonus', value: `$${bonus.toLocaleString()}`, inline: true },
             { name: 'Gross Income', value: `$${totalSalary.toLocaleString()}`, inline: true },
             { name: '📊 Income Tax (10%)', value: `-$${incomeTax.toLocaleString()}`, inline: true },
-            { name: 'Net Income', value: `$${salaryAfterTax.toLocaleString()}`, inline: true },
+            { name: '💳 Loan Payment', value: `-$${garnishPaid.toLocaleString()}`, inline: true },
+            { name: 'Take-Home', value: `$${takeHome.toLocaleString()}`, inline: true },
             { name: 'XP Gained', value: '10 XP', inline: true },
             { name: 'Next Work', value: '8 hours', inline: true }
         )
         .setFooter({ text: 'Keep working to level up your job!' });
+    
+    if (garnishPaid > 0 && loanRemaining !== null) {
+        embed.addFields({ name: 'Loan Remaining', value: `$${loanRemaining.toLocaleString()}`, inline: true });
+    }
+
+    if (loanDaysLeft !== null) {
+        embed.addFields({ name: 'Days Until Default', value: `${loanDaysLeft} day(s)`, inline: true });
+    }
+    
+    if (defaultInfo) {
+        embed.addFields({ name: '⚠️ Loan Default', value: `Loan defaulted after ${LOAN_DEFAULT_DAYS} days. Properties were repossessed.`, inline: false });
+    }
     
     await message.reply({ embeds: [embed] });
 }
@@ -1946,6 +2002,36 @@ async function fixedDepositCommand(message, args, client, db) {
     }
 }
 
+async function handleLoanDefault(userId, guildId, db) {
+    if (!db.data || !db.data.loans) return null;
+    const loanKey = `loan_${userId}_${guildId}`;
+    const loan = db.data.loans[loanKey];
+    if (!loan || loan.amount <= 0) return null;
+
+    const daysElapsed = (Date.now() - loan.taken_at) / (24 * 60 * 60 * 1000);
+    if (daysElapsed < LOAN_DEFAULT_DAYS) return null;
+
+    const properties = await db.getUserProperties(userId, guildId);
+    const seizedValue = properties.total_property_value || 0;
+
+    properties.houses = [];
+    properties.shops = [];
+    properties.lands = [];
+    properties.businesses = [];
+    properties.total_property_value = 0;
+    await db.updateUserProperties(userId, guildId, properties);
+
+    delete db.data.loans[loanKey];
+    if (typeof db.save === 'function') db.save();
+
+    await db.addTransaction(userId, guildId, 'loan_default', -loan.amount, {
+        seized_value: seizedValue,
+        days_elapsed: Math.floor(daysElapsed)
+    });
+
+    return { seizedValue };
+}
+
 async function loanCommand(message, args, client, db) {
     const subCommand = args[0]?.toLowerCase();
     const userId = message.author.id;
@@ -1953,6 +2039,11 @@ async function loanCommand(message, args, client, db) {
     
     if (!subCommand || !['apply', 'repay', 'status'].includes(subCommand)) {
         return message.reply('❌ Usage: `^economy loan <apply|repay|status>` [amount]');
+    }
+
+    const defaultInfo = await handleLoanDefault(userId, guildId, db);
+    if (defaultInfo) {
+        return message.reply(`⚠️ Loan defaulted after ${LOAN_DEFAULT_DAYS} days. Properties repossessed (value: $${defaultInfo.seizedValue.toLocaleString()}). Loan cleared.`);
     }
     
     if (subCommand === 'apply') {
@@ -1990,6 +2081,10 @@ async function loanCommand(message, args, client, db) {
         };
         
         if (typeof db.save === 'function') db.save();
+        await db.addTransaction(userId, guildId, 'loan_disbursed', amount, {
+            interest_rate: LOAN_INTEREST_RATE,
+            default_after_days: LOAN_DEFAULT_DAYS
+        });
         
         const embed = new EmbedBuilder()
             .setColor('#ff9900')
@@ -2045,6 +2140,10 @@ async function loanCommand(message, args, client, db) {
         
         await db.updateUserEconomy(userId, guildId, economy);
         if (typeof db.save === 'function') db.save();
+        await db.addTransaction(userId, guildId, 'loan_repayment', -repayAmount, {
+            remaining: Math.max(0, totalDue - loan.repaid),
+            fully_paid: isFullyPaid
+        });
         
         const embed = new EmbedBuilder()
             .setColor('#00ff00')
@@ -2072,6 +2171,8 @@ async function loanCommand(message, args, client, db) {
         const totalInterest = Math.floor(loan.amount * LOAN_INTEREST_RATE * monthsElapsed);
         const totalDue = loan.amount + totalInterest;
         const remaining = Math.max(0, totalDue - loan.repaid);
+        const daysUntilDefault = Math.max(0, LOAN_DEFAULT_DAYS - Math.floor((Date.now() - loan.taken_at) / (24 * 60 * 60 * 1000)));
+        const defaultTimestamp = loan.taken_at + (LOAN_DEFAULT_DAYS * 24 * 60 * 60 * 1000);
         
         const embed = new EmbedBuilder()
             .setColor('#ff9900')
@@ -2083,6 +2184,8 @@ async function loanCommand(message, args, client, db) {
                 { name: 'Total Due', value: `$${totalDue.toLocaleString()}`, inline: true },
                 { name: 'Already Paid', value: `$${loan.repaid.toLocaleString()}`, inline: true },
                 { name: 'Remaining Balance', value: `$${remaining.toLocaleString()}`, inline: true },
+                { name: 'Days Until Default', value: `${daysUntilDefault} day(s)`, inline: true },
+                { name: 'Default On', value: `<t:${Math.floor(defaultTimestamp / 1000)}:R>`, inline: true },
                 { name: '⚠️ Status', value: 'Properties are locked until fully repaid', inline: false }
             );
         
@@ -2095,7 +2198,7 @@ async function taxGiveawayCommand(message, args, client, db) {
     const subCommand = args[0]?.toLowerCase();
     
     // Admin check
-    if (!message.member.permissions.has('MANAGE_GUILD')) {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
         return message.reply('❌ Only server administrators can manage tax giveaways.');
     }
     
@@ -2347,16 +2450,63 @@ async function showProfile(message, client, db) {
     
     // Add recent transactions if any
     if (transactions.length > 0) {
-        let transactionsText = '';
-        transactions.forEach(t => {
-            const timeAgo = Math.floor((Date.now() - t.timestamp) / (60 * 1000));
-            const hours = Math.floor(timeAgo / 60);
-            const minutes = timeAgo % 60;
-            const timeStr = hours > 0 ? `${hours}h ${minutes}m ago` : `${minutes}m ago`;
-            
-            transactionsText += `• **${t.type}**: $${t.amount.toLocaleString()} (${timeStr})\n`;
-        });
-        
+        const typeLabels = {
+            work: 'Salary',
+            loan_payment_garnish: 'Loan Payment (Work)',
+            loan_repayment: 'Loan Repayment',
+            loan_disbursed: 'Loan Received',
+            loan_default: 'Loan Default',
+            deposit: 'Deposit',
+            withdraw: 'Withdraw',
+            rent: 'Rent',
+            buy: 'Purchase',
+            sell: 'Sale'
+        };
+        const typeIcons = {
+            work: '💼',
+            loan_payment_garnish: '💳',
+            loan_repayment: '💳',
+            loan_disbursed: '🏦',
+            loan_default: '⚠️',
+            deposit: '🏦',
+            withdraw: '🏦',
+            rent: '🏠',
+            buy: '🛒',
+            sell: '💵'
+        };
+
+        const formatTransaction = (t) => {
+            const icon = typeIcons[t.type] || '📝';
+            const label = typeLabels[t.type] || t.type;
+            const amountStr = `${t.amount >= 0 ? '+' : '-'}$${Math.abs(t.amount).toLocaleString()}`;
+            const timeStr = t.timestamp ? `<t:${Math.floor(t.timestamp / 1000)}:R>` : 'recently';
+            const meta = t.metadata || {};
+            const parts = [];
+
+            if (t.type === 'work') {
+                const net = t.amount - (meta.tax || 0) - (meta.loan_payment || 0);
+                parts.push(`net $${net.toLocaleString()}`);
+                if (meta.loan_payment) parts.push(`loan $${meta.loan_payment.toLocaleString()}`);
+                if (meta.tax) parts.push(`tax $${meta.tax.toLocaleString()}`);
+            }
+
+            if (t.type === 'loan_payment_garnish' && meta.loan_remaining !== undefined) {
+                parts.push(`left $${meta.loan_remaining.toLocaleString()}`);
+            }
+
+            if (t.type === 'loan_repayment' && meta.remaining !== undefined) {
+                parts.push(`left $${meta.remaining.toLocaleString()}`);
+            }
+
+            if (t.type === 'loan_disbursed' && meta.default_after_days !== undefined) {
+                parts.push(`${meta.default_after_days}d to default`);
+            }
+
+            const detail = parts.length > 0 ? ` — ${parts.join(' | ')}` : '';
+            return `• ${icon} **${label}**: ${amountStr} (${timeStr})${detail}`;
+        };
+
+        const transactionsText = transactions.map(formatTransaction).join('\n');
         embed.addFields({ name: '📝 Recent Transactions', value: transactionsText, inline: false });
     }
     
