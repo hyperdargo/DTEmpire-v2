@@ -1378,10 +1378,21 @@ async function setAutoTicketCommand(message, args, client, db) {
     const existing = await db.getAutoTicket(userId, guildId);
     let currentNumbers = [];
     if (existing && existing.numbers) {
-        currentNumbers = Array.isArray(existing.numbers) ? existing.numbers : [existing.numbers];
+        if (Array.isArray(existing.numbers)) {
+            // Create a NEW array and ensure all are integers
+            currentNumbers = [...existing.numbers].map(n => {
+                if (typeof n === 'string') return parseInt(n);
+                return parseInt(n);
+            }).filter(n => !isNaN(n) && n > 0);
+        } else if (typeof existing.numbers === 'string') {
+            // Parse comma-separated string
+            currentNumbers = existing.numbers.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n) && n > 0);
+        } else {
+            currentNumbers = [parseInt(existing.numbers)];
+        }
     } else if (existing && existing.number) {
         // Migrate old single number format
-        currentNumbers = [existing.number];
+        currentNumbers = [parseInt(existing.number)];
     }
 
     // Check if already have this number
@@ -1391,12 +1402,12 @@ async function setAutoTicketCommand(message, args, client, db) {
 
     // Check max limit (5 tickets)
     if (currentNumbers.length >= 5) {
-        return message.reply(`❌ Maximum 5 auto-tickets allowed! You have: ${currentNumbers.join(', ')}`);
+        return message.reply(`❌ Maximum 5 auto-tickets allowed! You have: ${currentNumbers.map(n => `#${n}`).join(', ')}`);
     }
 
-    // Add new number
-    currentNumbers.push(ticketNumber);
-    await db.setAutoTicket(userId, guildId, currentNumbers, true);
+    // Add new number to a NEW array
+    const newNumbers = [...currentNumbers, ticketNumber];
+    await db.setAutoTicket(userId, guildId, newNumbers, true);
 
     // Try to apply one ticket immediately for the current round if available
     let appliedNow = false;
@@ -1489,15 +1500,17 @@ async function autoTicketStatusCommand(message, client, db) {
             { name: 'Current Prize Pool', value: `$${currentPot.toLocaleString()}`, inline: true }
         );
     } else {
-        // Handle both old and new format
+        // Handle both old and new format - ensure all are clean integers
         let numbers = [];
         if (existing.numbers && Array.isArray(existing.numbers)) {
-            numbers = existing.numbers;
+            numbers = existing.numbers.map(n => {
+                if (typeof n === 'string') return parseInt(n);
+                return n;
+            }).filter(n => !isNaN(n));
         } else if (existing.number) {
-            numbers = [existing.number];
+            numbers = [parseInt(existing.number)];
         } else if (existing.numbers && typeof existing.numbers === 'string') {
-            // If stored as string, parse it
-            numbers = existing.numbers.split(',').map(n => parseInt(n.trim()));
+            numbers = existing.numbers.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
         }
         
         const ticketCount = numbers.length;
