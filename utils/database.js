@@ -893,13 +893,20 @@ class Database {
 
     // ========== LOTTERY METHODS ==========
     async getLotteryTicket(userId, guildId) {
-        const key = `lottery_${userId}_${guildId}`;
+        // This method is deprecated - use getActiveLotteryTickets and filter
         if (!this.data.lottery) this.data.lottery = {};
-        return this.data.lottery[key] || null;
+        
+        // Find all tickets for this user
+        const userTickets = Object.values(this.data.lottery).filter(
+            ticket => ticket.user_id === userId && ticket.guild_id === guildId && !ticket.drawn
+        );
+        
+        return userTickets.length > 0 ? userTickets[0] : null;
     }
 
     async buyLotteryTicket(userId, guildId, ticketNumber, amount) {
-        const key = `lottery_${userId}_${guildId}`;
+        // Generate unique key with ticket number
+        const key = `lottery_${userId}_${guildId}_${ticketNumber}`;
         if (!this.data.lottery) this.data.lottery = {};
         
         this.data.lottery[key] = {
@@ -924,13 +931,24 @@ class Database {
     }
 
     // ========== AUTO-LOTTERY SUBSCRIPTIONS ==========
-    async setAutoTicket(userId, guildId, number, enabled = true) {
+    async setAutoTicket(userId, guildId, numbers, enabled = true) {
         if (!this.data.autoLottery) this.data.autoLottery = {};
         const key = `auto_${userId}_${guildId}`;
+        
+        // Ensure we have a clean array of integers
+        let numberArray = [];
+        if (Array.isArray(numbers)) {
+            numberArray = [...numbers].map(n => parseInt(n)).filter(n => !isNaN(n) && n > 0);
+        } else if (typeof numbers === 'string') {
+            numberArray = numbers.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n) && n > 0);
+        } else {
+            numberArray = [parseInt(numbers)];
+        }
+        
         this.data.autoLottery[key] = {
             user_id: userId,
             guild_id: guildId,
-            number: number,
+            numbers: numberArray,
             enabled: !!enabled,
             created_at: Date.now()
         };
