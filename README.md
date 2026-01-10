@@ -353,6 +353,6 @@ See the [LICENSE](LICENSE) file for details.
 ---
 
 <p align="center">
-  DTEmpire v2.8.0 • Built with ❤️ for the Discord community
+  DTEmpire v2.7.2 • Built with ❤️ for the Discord community
 </p>
 
