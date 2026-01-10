@@ -222,30 +222,79 @@ async function applyAutoSubscriptions({ guildId, client, db, guildName }) {
     let created = 0;
     // Sort deterministically by user_id to avoid random conflicts
     for (const sub of subs.sort((a, b) => (a.user_id > b.user_id ? 1 : -1))) {
-        const number = sub.number;
-        if (taken.has(number)) {
-            // Number already taken by another subscription; skip
+        // Handle both old (single number) and new (array) format
+        let numbers = [];
+        if (sub.numbers && Array.isArray(sub.numbers)) {
+            numbers = sub.numbers;
+        } else if (sub.number) {
+            numbers = [sub.number];
+        } else {
             continue;
         }
-        // Charge user and create ticket if affordable
+
+        // Calculate total cost based on ticket count
+        const ticketCount = numbers.length;
+        let totalCost;
+        if (ticketCount <= 3) {
+            totalCost = ticketCount * 2000;
+        } else {
+            totalCost = ticketCount * 4000;
+        }
+
         const economy = await db.getUserEconomy(sub.user_id, guildId);
-        if (!economy || economy.wallet < AUTO_TICKET_PRICE) {
-            // Insufficient funds: record a failed transaction and skip
-            await db.addTransaction(sub.user_id, guildId, 'autoticket_failed_insufficient_funds', 0, { ticket_number: number });
-            continue;
+        
+        // Check if user can afford all tickets
+        let numbersToProcess = numbers;
+        let actualCost = totalCost;
+        
+        if (!economy || economy.wallet < totalCost) {
+            // Fallback: try just the first ticket for 2000
+            if (economy && economy.wallet >= 2000 && numbers.length > 0) {
+                numbersToProcess = [numbers[0]];
+                actualCost = 2000;
+                await db.addTransaction(sub.user_id, guildId, 'autoticket_partial', 0, { 
+                    reason: 'insufficient_funds_for_all',
+                    requested: numbers.length,
+                    applied: 1
+                });
+            } else {
+                // Can't afford even one ticket
+                await db.addTransaction(sub.user_id, guildId, 'autoticket_failed_insufficient_funds', 0, { 
+                    required: actualCost,
+                    wallet: economy?.wallet || 0
+                });
+                continue;
+            }
         }
-        economy.wallet -= AUTO_TICKET_PRICE;
-        await db.updateUserEconomy(sub.user_id, guildId, economy);
-        try {
-            await db.buyLotteryTicket(sub.user_id, guildId, number, AUTO_TICKET_PRICE);
-            await db.addTransaction(sub.user_id, guildId, 'autoticket', -AUTO_TICKET_PRICE, { ticket_number: number });
-            taken.add(number);
-            created++;
-        } catch (err) {
-            // Refund on DB failure
-            const econ2 = await db.getUserEconomy(sub.user_id, guildId);
-            econ2.wallet += AUTO_TICKET_PRICE;
-            await db.updateUserEconomy(sub.user_id, guildId, econ2);
+
+        // Process available numbers
+        let successCount = 0;
+        for (const number of numbersToProcess) {
+            if (taken.has(number)) {
+                continue; // Skip if already taken
+            }
+            
+            const pricePerTicket = numbersToProcess.length <= 3 ? 2000 : 4000;
+            
+            // Deduct cost for this ticket
+            economy.wallet -= pricePerTicket;
+            await db.updateUserEconomy(sub.user_id, guildId, economy);
+            
+            try {
+                await db.buyLotteryTicket(sub.user_id, guildId, number, pricePerTicket);
+                await db.addTransaction(sub.user_id, guildId, 'autoticket', -pricePerTicket, { 
+                    ticket_number: number,
+                    total_tickets: numbersToProcess.length
+                });
+                taken.add(number);
+                successCount++;
+                created++;
+            } catch (err) {
+                // Refund on DB failure
+                const econ2 = await db.getUserEconomy(sub.user_id, guildId);
+                econ2.wallet += pricePerTicket;
+                await db.updateUserEconomy(sub.user_id, guildId, econ2);
+            }
         }
     }
 
@@ -1316,7 +1365,7 @@ async function buyLotteryTicket(message, args, client, db) {
 async function setAutoTicketCommand(message, args, client, db) {
     ensureAutoLotteryMethods(db);
     if (args.length === 0) {
-        return message.reply('❌ Usage: `^economy autoticket <number>` (1-100)');
+        return message.reply('❌ Usage: `^economy autoticket <number>` (1-100)\n💡 You can have up to 5 auto-tickets!');
     }
     const ticketNumber = parseInt(args[0]);
     if (isNaN(ticketNumber) || ticketNumber < 1 || ticketNumber > 100) {
@@ -1325,7 +1374,29 @@ async function setAutoTicketCommand(message, args, client, db) {
     const userId = message.author.id;
     const guildId = message.guild.id;
 
-    await db.setAutoTicket(userId, guildId, ticketNumber, true);
+    // Get existing auto-tickets
+    const existing = await db.getAutoTicket(userId, guildId);
+    let currentNumbers = [];
+    if (existing && existing.numbers) {
+        currentNumbers = Array.isArray(existing.numbers) ? existing.numbers : [existing.numbers];
+    } else if (existing && existing.number) {
+        // Migrate old single number format
+        currentNumbers = [existing.number];
+    }
+
+    // Check if already have this number
+    if (currentNumbers.includes(ticketNumber)) {
+        return message.reply(`❌ You already have auto-ticket #${ticketNumber}!`);
+    }
+
+    // Check max limit (5 tickets)
+    if (currentNumbers.length >= 5) {
+        return message.reply(`❌ Maximum 5 auto-tickets allowed! You have: ${currentNumbers.join(', ')}`);
+    }
+
+    // Add new number
+    currentNumbers.push(ticketNumber);
+    await db.setAutoTicket(userId, guildId, currentNumbers, true);
 
     // Try to apply one ticket immediately for the current round if available
     let appliedNow = false;
@@ -1354,15 +1425,26 @@ async function setAutoTicketCommand(message, args, client, db) {
         }
     } catch (_) {}
 
+    // Calculate pricing
+    const ticketCount = currentNumbers.length;
+    let pricePerRound;
+    if (ticketCount <= 3) {
+        pricePerRound = ticketCount * 2000;
+    } else {
+        pricePerRound = ticketCount * 4000;
+    }
+
     const embed = new EmbedBuilder()
         .setColor('#22c55e')
-        .setTitle('✅ Auto-Ticket Enabled')
-        .setDescription('We will auto-buy your number every round, even if you are offline.')
+        .setTitle('✅ Auto-Ticket Added')
+        .setDescription('Your numbers will be auto-bought every round, even if you are offline.')
         .addFields(
-            { name: 'Number', value: `#${ticketNumber}`, inline: true },
-            { name: 'Price per Round', value: `$${AUTO_TICKET_PRICE.toLocaleString()}`, inline: true },
+            { name: '🎟️ Your Numbers', value: currentNumbers.map(n => `#${n}`).join(', '), inline: false },
+            { name: '💰 Price per Round', value: `$${pricePerRound.toLocaleString()}`, inline: true },
+            { name: '📊 Ticket Count', value: `${ticketCount}/5`, inline: true },
             { name: 'Applied Now', value: appliedNow ? 'Yes — 1 ticket purchased' : 'No — Will apply next round', inline: true },
-            { name: 'Note', value: 'Requires wallet funds. Subscriptions reset after a jackpot winner.' }
+            { name: '💡 Pricing Tiers', value: '1-3 tickets: $2k each\n4-5 tickets: $4k each (double!)', inline: false },
+            { name: 'Note', value: 'If you can\'t afford all tickets, only the first one will apply.' }
         );
     
     // Check if user has sufficient funds for next round
@@ -1407,17 +1489,41 @@ async function autoTicketStatusCommand(message, client, db) {
             { name: 'Current Prize Pool', value: `$${currentPot.toLocaleString()}`, inline: true }
         );
     } else {
+        // Handle both old and new format
+        let numbers = [];
+        if (existing.numbers && Array.isArray(existing.numbers)) {
+            numbers = existing.numbers;
+        } else if (existing.number) {
+            numbers = [existing.number];
+        }
+        
+        const ticketCount = numbers.length;
+        let pricePerRound;
+        if (ticketCount <= 3) {
+            pricePerRound = ticketCount * 2000;
+        } else {
+            pricePerRound = ticketCount * 4000;
+        }
+        
         embed.setDescription('Auto-ticket is active.').addFields(
-            { name: 'Number', value: `#${existing.number}`, inline: true },
-            { name: 'Price per Round', value: `$${AUTO_TICKET_PRICE.toLocaleString()}`, inline: true },
+            { name: '🎟️ Your Numbers', value: numbers.map(n => `#${n}`).join(', '), inline: false },
+            { name: '💰 Price per Round', value: `$${pricePerRound.toLocaleString()}`, inline: true },
+            { name: '📊 Tickets', value: `${ticketCount}/5`, inline: true },
             { name: 'Since', value: `<t:${Math.floor(existing.created_at/1000)}:R>`, inline: true }
         );
         
         // Check wallet status
-        if (userEconomy.wallet < AUTO_TICKET_PRICE) {
-            embed.addFields(
-                { name: '⚠️ Insufficient Funds', value: `You have $${userEconomy.wallet.toLocaleString()} but need $${AUTO_TICKET_PRICE.toLocaleString()} for the next round. Your auto-ticket will NOT apply!`, inline: false }
-            );
+        if (userEconomy.wallet < pricePerRound) {
+            if (userEconomy.wallet >= 2000) {
+                embed.addFields(
+                    { name: '⚠️ Partial Application', value: `You have $${userEconomy.wallet.toLocaleString()} but need $${pricePerRound.toLocaleString()} for all tickets. Only your first ticket (#${numbers[0]}) will apply for $2,000!`, inline: false }
+                );
+            } else {
+                embed.addFields(
+                    { name: '❌ Insufficient Funds', value: `You have $${userEconomy.wallet.toLocaleString()} but need at least $2,000. Your auto-tickets will NOT apply!`, inline: false }
+                );
+            }
+        }
         } else {
             embed.addFields(
                 { name: '✅ Wallet Status', value: `Ready! You have $${userEconomy.wallet.toLocaleString()}`, inline: false }
@@ -2009,12 +2115,14 @@ async function fixedDepositCommand(message, args, client, db) {
         await db.updateUserEconomy(userId, guildId, economy);
         
         if (!db.data.fixedDeposits) db.data.fixedDeposits = {};
-        const fdKey = `fd_${userId}_${guildId}`;
+        
+        // Generate unique FD ID
+        const fdId = `fd_${userId}_${guildId}_${Date.now()}`;
         
         const lockedUntil = Date.now() + (days * 24 * 60 * 60 * 1000);
         const expectedInterest = Math.floor(amount * FD_INTEREST_RATE * days);
         
-        db.data.fixedDeposits[fdKey] = {
+        db.data.fixedDeposits[fdId] = {
             user_id: userId,
             guild_id: guildId,
             amount: amount,
@@ -2044,25 +2152,33 @@ async function fixedDepositCommand(message, args, client, db) {
             return message.reply('❌ You have no active fixed deposits.');
         }
         
-        const fdKey = `fd_${userId}_${guildId}`;
-        const fd = db.data.fixedDeposits[fdKey];
+        // Find all FDs for this user
+        const userFDs = Object.entries(db.data.fixedDeposits)
+            .filter(([key, fd]) => fd.user_id === userId && fd.guild_id === guildId)
+            .map(([key, fd]) => ({ id: key, ...fd }));
         
-        if (!fd) {
+        if (userFDs.length === 0) {
             return message.reply('❌ You have no active fixed deposits.');
         }
         
-        const timeRemaining = fd.locked_until - Date.now();
-        const daysLeft = Math.ceil(timeRemaining / (24 * 60 * 60 * 1000));
-        
         const embed = new EmbedBuilder()
             .setColor('#4169E1')
-            .setTitle('💎 Fixed Deposit Info')
-            .addFields(
-                { name: 'Locked Amount', value: `$${fd.amount.toLocaleString()}`, inline: true },
-                { name: 'Days Left', value: `${daysLeft}`, inline: true },
-                { name: 'Expected Interest', value: `$${fd.expected_interest.toLocaleString()}`, inline: true },
-                { name: 'Maturity Amount', value: `$${(fd.amount + fd.expected_interest).toLocaleString()}`, inline: false }
-            );
+            .setTitle(`💎 Fixed Deposits (${userFDs.length} active)`)
+            .setDescription('All your active fixed deposits:');
+        
+        userFDs.forEach((fd, index) => {
+            const timeRemaining = fd.locked_until - Date.now();
+            const daysLeft = Math.ceil(timeRemaining / (24 * 60 * 60 * 1000));
+            const status = timeRemaining > 0 ? `🔒 ${daysLeft} days left` : '✅ Ready to withdraw';
+            
+            embed.addFields({
+                name: `FD #${index + 1} - $${fd.amount.toLocaleString()}`,
+                value: `Status: ${status}\nExpected Interest: $${fd.expected_interest.toLocaleString()}\nMaturity: $${(fd.amount + fd.expected_interest).toLocaleString()}`,
+                inline: true
+            });
+        });
+        
+        embed.setFooter({ text: 'Use ^economy fd withdraw <number> to withdraw a specific FD' });
         
         await message.reply({ embeds: [embed] });
     } else if (subCommand === 'withdraw') {
@@ -2070,20 +2186,33 @@ async function fixedDepositCommand(message, args, client, db) {
             return message.reply('❌ You have no active fixed deposits.');
         }
         
-        const fdKey = `fd_${userId}_${guildId}`;
-        const fd = db.data.fixedDeposits[fdKey];
+        // Find all mature FDs for this user
+        const userFDs = Object.entries(db.data.fixedDeposits)
+            .filter(([key, fd]) => fd.user_id === userId && fd.guild_id === guildId && fd.locked_until <= Date.now())
+            .map(([key, fd]) => ({ id: key, ...fd }));
+        
+        if (userFDs.length === 0) {
+            return message.reply('❌ You have no mature fixed deposits ready to withdraw.');
+        }
+        
+        // Withdraw the specified FD or the first one
+        const fdNumber = parseInt(args[1]) || 1;
+        const fd = userFDs[fdNumber - 1];
         
         if (!fd) {
-            return message.reply('❌ You have no active fixed deposits.');
+            return message.reply(`❌ Invalid FD number. You have ${userFDs.length} mature FD(s).`);
         }
         
-        if (fd.locked_until > Date.now()) {
-            const timeRemaining = fd.locked_until - Date.now();
-            const daysLeft = Math.ceil(timeRemaining / (24 * 60 * 60 * 1000));
-            return message.reply(`⏰ Your FD is locked for ${daysLeft} more days. Come back when it matures.`);
-        }
+        const daysPassed = Math.floor((Date.now() - fd.created_at) / (24 * 60 * 60 * 1000));
+        const interest = Math.floor(fd.amount * FD_INTEREST_RATE * daysPassed);
+        const totalAmount = fd.amount + interest;
         
-        const interest = await applyFixedDepositInterest(userId, guildId, db);
+        const economy = await db.getUserEconomy(userId, guildId);
+        economy.bank += totalAmount;
+        await db.updateUserEconomy(userId, guildId, economy);
+        
+        delete db.data.fixedDeposits[fd.id];
+        if (typeof db.save === 'function') db.save();
         
         const embed = new EmbedBuilder()
             .setColor('#00ff00')
@@ -2091,7 +2220,8 @@ async function fixedDepositCommand(message, args, client, db) {
             .addFields(
                 { name: 'Principal', value: `$${fd.amount.toLocaleString()}`, inline: true },
                 { name: 'Interest Earned', value: `$${interest.toLocaleString()}`, inline: true },
-                { name: 'Total Received', value: `$${(fd.amount + interest).toLocaleString()}`, inline: true }
+                { name: 'Total Received', value: `$${totalAmount.toLocaleString()}`, inline: true },
+                { name: 'Remaining FDs', value: `${userFDs.length - 1}`, inline: true }
             );
         
         await message.reply({ embeds: [embed] });
