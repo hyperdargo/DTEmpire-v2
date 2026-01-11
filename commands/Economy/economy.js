@@ -1474,9 +1474,10 @@ async function cancelAutoTicketCommand(message, client, db) {
     const userId = message.author.id;
     const guildId = message.guild.id;
     const existing = await db.getAutoTicket(userId, guildId);
-    if (!existing) return message.reply('ℹ️ You don\'t have an active auto-ticket.');
+    const removed = await db.removeAutoTicket(userId, guildId);
 
-    await db.removeAutoTicket(userId, guildId);
+    if (!existing && !removed) return message.reply('ℹ️ You don\'t have an active auto-ticket.');
+
     const embed = new EmbedBuilder()
         .setColor('#f43f5e')
         .setTitle('🛑 Auto-Ticket Disabled')
