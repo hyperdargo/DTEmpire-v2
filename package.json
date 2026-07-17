@@ -1,0 +1,26 @@
+{
+  "name": "dtempire-v2",
+  "version": "2.8.0",
+  "description": "DTEmpire Discord Bot v2.8.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.18.0",
+    "axios": "^1.18.1",
+    "chartjs-node-canvas": "^5.0.0",
+    "colors": "^1.4.0",
+    "discord.js": "^14.26.4",
+    "dotenv": "^16.6.1",
+    "moment": "^2.30.1",
+    "ms": "^2.1.3",
+    "play-dl": "^1.9.7",
+    "riffy": "^1.0.12",
+    "riffy-spotify": "^1.0.2",
+    "spotify-url-info": "^3.3.1",
+    "uuid": "^9.0.1"
+  },
+  "author": "DargoTamber",
+  "license": "MIT"
+}

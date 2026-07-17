@@ -1,0 +1,45 @@
+{
+  "bot": {
+    "name": "DTEmpire",
+    "version": "2.8.0",
+    "ownerId": "564029689233014803",
+    "prefix": "^",
+    "token": "{{BOT_TOKEN}}",
+    "embedColor": "#0061ff",
+    "admins": ["564029689233014803"],
+    "supportServer": "https://discord.gg/9V6jA76JMQ"
+  },
+  "music": {
+    "nodes": [{
+      "host": "panel.ankitgupta.com.np",
+      "password": "DTEmpire",
+      "port": 25600,
+      "secure": false,
+      "name": "Main Node"
+    }],
+    "spotify": {
+      "clientId": "{{SPOTIFY_CLIENT_ID}}",
+      "clientSecret": "{{SPOTIFY_CLIENT_SECRET}}"
+    },
+    "defaultSearchPlatform": "ytmsearch"
+  },
+  "api": {
+    "ai": "https://9router.ankitgupta.com.np",
+    "apiKey": "{{AI_API_KEY}}",
+    "chatEndpoint": "/v1/chat/completions",
+    "modelsEndpoint": "/v1/models",
+    "imageGen": "/api/pollination",
+    "videoGen": "/api/video",
+    "tts": "/api/tts",
+    "imageCard": "/api/image-card"
+  },
+  "database": {
+    "path": "./data/database.db",
+    "backupInterval": 3600000
+  },
+  "logging": {
+    "enabled": true,
+    "debug": false,
+    "logFile": "./data/bot.log"
+  }
+}
